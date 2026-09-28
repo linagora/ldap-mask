@@ -2,8 +2,8 @@
 //
 // Architecture (DESIGN.md §4): one upstream connection per client connection
 // (the "bound" state is a connection state, not shareable through a pool),
-// opened lazily. Two goroutines exchange messages; a mutex serialises writes to
-// the client, because the synthesised responses (§4.1) and the relayed stream
+// opened lazily. Two goroutines exchange messages; a mutex serializes writes to
+// the client, because the synthesized responses (§4.1) and the relayed stream
 // (§4.2) write to the same socket.
 package main
 
@@ -160,7 +160,7 @@ func (p *Proxy) realDialUpstream(ctx context.Context) (net.Conn, error) {
 	hsCtx, cancel := context.WithTimeout(ctx, dialTimeout)
 	defer cancel()
 	if err := tconn.HandshakeContext(hsCtx); err != nil {
-		raw.Close()
+		_ = raw.Close()
 		return nil, fmt.Errorf("upstream TLS handshake: %w", err)
 	}
 	return tconn, nil
@@ -228,8 +228,8 @@ type connHandler struct {
 
 	// mu protects ALL writes to the client. It is taken for a WHOLE LDAP
 	// message, never for a fragment: two producers write to this socket (the
-	// upstream → client relay and the synthesised responses), and interleaving
-	// in the middle of a message would desynchronise the client's BER decoder.
+	// upstream → client relay and the synthesized responses), and interleaving
+	// in the middle of a message would desynchronize the client's BER decoder.
 	mu sync.Mutex
 
 	// Upstream connection, opened lazily on the first message to relay. upMu
@@ -299,13 +299,13 @@ func (h *connHandler) forward(raw []byte) error {
 	return err
 }
 
-// refuseBindLocally synthesises a bind failure response to the client.
+// refuseBindLocally synthesizes a bind failure response to the client.
 //
 // If a bind has already been forwarded to the upstream, the upstream connection
-// still carries the previous identity. The synthesised response tells the
+// still carries the previous identity. The synthesized response tells the
 // client it is no longer bound, but the upstream knows nothing of it: the
 // client would therefore keep working with the rights of the previous identity
-// while believing itself anonymous. We cannot re-anonymise the upstream without
+// while believing itself anonymous. We cannot re-anonymize the upstream without
 // rewriting its state, so we close the connection rather than lie about the
 // state (§4.1).
 //
@@ -393,9 +393,9 @@ func (p *Proxy) handleConn(ctx context.Context, client net.Conn) {
 //
 // An LDAP message is read IN FULL (BER framing, §4.3) then written in a single
 // operation under the lock. An io.Copy would release the lock between two 32
-// KiB fragments: a synthesised response (§4.1) could then insert itself in the
+// KiB fragments: a synthesized response (§4.1) could then insert itself in the
 // middle of a message being relayed, and the client would read that response as
-// the continuation of the previous message — a permanent desynchronisation of
+// the continuation of the previous message — a permanent desynchronization of
 // its decoder.
 //
 // Accepted consequence: an upstream message is bounded by maxMessageSize, like
@@ -551,7 +551,7 @@ func (h *connHandler) handleBind(env *Envelope) error {
 	h.upstreamBound = true
 
 	// The upstream BindResponse will be relayed verbatim by the upstream →
-	// client goroutine: we synthesise nothing on success (§4.1).
+	// client goroutine: we synthesize nothing on success (§4.1).
 	return h.forward(out)
 }
 
@@ -583,7 +583,7 @@ func (h *connHandler) handleExtended(env *Envelope) error {
 	return h.forward(env.Raw)
 }
 
-// writeBindResult synthesises a local BindResponse to the client.
+// writeBindResult synthesizes a local BindResponse to the client.
 func (h *connHandler) writeBindResult(messageID int, code ResultCode, diagnostic string) {
 	resp, err := EncodeBindResponse(messageID, code, diagnostic)
 	if err != nil {

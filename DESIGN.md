@@ -191,6 +191,10 @@ allow_unmapped_bind: false
   commas removed). **Accepted approximation**: this is not a real DN parser
   (escaping, `\+`, quotes). To be replaced with a correct parser if the need
   arises.
+- An IPv6 literal in `listen` must be **bracketed** (`ldaps://[::1]:1636`).
+  Unbracketed, `url.Parse` splits it at the wrong colon and returns an address
+  `net.Listen` rejects; the proxy refuses it at load time with a message saying
+  so, rather than failing later with "missing port in address".
 
 ## 6. Security — what the proxy does **not** protect
 
@@ -289,8 +293,7 @@ dependency layer stays cached across source edits.
 **Linting** (`.golangci.yml`). The default "standard" set plus `misspell` in
 **US** locale. The set is deliberately small so CI does not break when a linter
 is renamed or removed upstream. `misspell` earns its place now that the
-codebase is English; it is what keeps `behaviour`/`cancelled`-style spellings
-out.
+codebase is English; it is what keeps Commonwealth spellings out of the tree.
 
 **Lint action version** (`ci.yml`). `golangci/golangci-lint-action` must stay on
 **v9 or later**: v6 predates golangci-lint v2 and fails at install time when
@@ -309,8 +312,8 @@ release with generated notes. The workflow re-runs the unit tests and refuses a
 tag that does not look like `vMAJOR.MINOR.PATCH`, so a mistyped tag fails before
 anything is published.
 
-The machine already has Go 1.26.8, Docker 28.5.2 and OpenLDAP 2.6.15 clients
-(`ldapsearch`, `ldapwhoami`).
+The test plan in §9 was validated with Go 1.26.8, Docker 28.5.2 and the
+OpenLDAP 2.6.15 clients (`ldapsearch`, `ldapwhoami`).
 
 ## 8. Follow-up
 

@@ -45,7 +45,7 @@ type Mapping struct {
 	RemotePassword      string `yaml:"remote_password"`
 }
 
-// envVarRe recognises the ${VAR} syntax (design §5).
+// envVarRe recognizes the ${VAR} syntax (design §5).
 var envVarRe = regexp.MustCompile(`\$\{([A-Za-z_][A-Za-z0-9_]*)\}`)
 
 // expandEnv replaces ${VAR} with their value, and returns an error as soon as a

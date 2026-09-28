@@ -6,7 +6,7 @@
 // risk of altering an exotic control).
 //
 // We do NOT use a high-level LDAP client (§7). However, to *encode* the
-// requests/responses that we synthesise, we rely on
+// requests/responses that we synthesize, we rely on
 // github.com/go-asn1-ber/asn1-ber. Decoding, for its part, is written by hand:
 // it must preserve the original bytes verbatim.
 package main

@@ -10,6 +10,7 @@ package main
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -63,9 +64,9 @@ func TestBuildUpstreamTLSNoCA(t *testing.T) {
 	}
 }
 
-// TestBuildUpstreamTLSCAFileLoads: a valid ca_file populates RootCAs, and the
-// certificate it holds actually verifies against the pool. Asserting only that
-// RootCAs is non-nil would pass on a pool loaded with the wrong PEM.
+// TestBuildUpstreamTLSCAFileLoads: a valid ca_file populates RootCAs with
+// exactly the certificates of that file — compared, not counted, so a pool
+// holding a single wrong certificate cannot pass.
 func TestBuildUpstreamTLSCAFileLoads(t *testing.T) {
 	dir := t.TempDir()
 	caFile := selfSignedCert(t, dir)
@@ -77,8 +78,20 @@ func TestBuildUpstreamTLSCAFileLoads(t *testing.T) {
 	if tlsCfg == nil || tlsCfg.RootCAs == nil {
 		t.Fatal("RootCAs not populated from ca_file")
 	}
-	if n := len(tlsCfg.RootCAs.Subjects()); n != 1 {
-		t.Errorf("RootCAs holds %d certificate(s), want 1", n)
+
+	// Compare the pool against one built from the same file. Counting
+	// certificates would not do: a pool holding a single but WRONG certificate
+	// counts 1 as well.
+	pem, err := os.ReadFile(caFile)
+	if err != nil {
+		t.Fatalf("reading %s: %v", caFile, err)
+	}
+	want := x509.NewCertPool()
+	if !want.AppendCertsFromPEM(pem) {
+		t.Fatal("the generated ca_file is not usable PEM")
+	}
+	if !tlsCfg.RootCAs.Equal(want) {
+		t.Error("RootCAs does not hold exactly the certificates of ca_file")
 	}
 }
 
@@ -104,7 +117,7 @@ func TestBuildUpstreamTLSCAFileErrors(t *testing.T) {
 }
 
 // TestBuildUpstreamTLSInsecurePropagates: the flag reaches the tls.Config.
-// Validate() is what refuses it by default; buildUpstreamTLS must still honour
+// Validate() is what refuses it by default; buildUpstreamTLS must still honor
 // it once the override has been granted.
 func TestBuildUpstreamTLSInsecurePropagates(t *testing.T) {
 	tlsCfg, err := upstreamTLSFor(t, "ldaps://127.0.0.1:636", "", true)

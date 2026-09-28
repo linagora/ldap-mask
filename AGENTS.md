@@ -12,7 +12,7 @@ block merges, corrupt the codebase or make the maintainers unhappy.
 
 - Written in **Go**, one `main` package, no internal packages. The
   standard library does the heavy lifting; the only dependencies are
-  `go-asn1-ber` (encoding the messages we synthesise), `x/crypto/bcrypt`
+  `go-asn1-ber` (encoding the messages we synthesize), `x/crypto/bcrypt`
   and `yaml.v3`. Adding a dependency needs a reason.
 
 - BER **decoding** is hand-written in `ber.go`, deliberately: it must
@@ -71,7 +71,7 @@ block merges, corrupt the codebase or make the maintainers unhappy.
 
 - Audience: someone deciding whether to use the tool, then using it.
 - The comparison tables and the cleartext/TLS matrix must match the
-  actual behaviour of `config.go`. Verify before editing them.
+  actual behavior of `config.go`. Verify before editing them.
 
 ## Git commit messages
 

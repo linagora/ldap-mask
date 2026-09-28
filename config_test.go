@@ -71,7 +71,7 @@ func TestLoadExpandsEnvAndLookup(t *testing.T) {
 	// Lookup tolerates case and spaces around commas.
 	m := cfg.Lookup("CN=Test-Admin , DC=Test")
 	if m == nil {
-		t.Fatal("Lookup did not find the mapping (normalisation)")
+		t.Fatal("Lookup did not find the mapping (normalization)")
 	}
 	if m.RemoteDN != "cn=admin,dc=example,dc=com" {
 		t.Errorf("remote_dn = %q", m.RemoteDN)
@@ -87,7 +87,7 @@ func TestLoadUnsetEnvFails(t *testing.T) {
 		t.Fatalf("HashPassword: %v", err)
 	}
 	// We make sure the variable does not exist.
-	os.Unsetenv("TEST_REMOTE_PW")
+	_ = os.Unsetenv("TEST_REMOTE_PW")
 
 	path := writeConfig(t, validConfigYAML(hash))
 	_, err = Load(path)
@@ -146,7 +146,7 @@ mappings:
     remote_dn: "cn=admin,dc=e"
     remote_password: "pw"
 `
-	os.Unsetenv("LDAP_MASK_ALLOW_INSECURE")
+	_ = os.Unsetenv("LDAP_MASK_ALLOW_INSECURE")
 	if _, err := Load(writeConfig(t, body)); err == nil {
 		t.Fatal("insecure_skip_verify accepted without exemption")
 	}

@@ -309,7 +309,7 @@ func TestE2ECleartextListener(t *testing.T) {
 			t.Fatalf("StartTLS wrongly accepted:\n%s", out)
 		}
 		// OpenLDAP renders code 53 in the form "Server is unwilling to
-		// perform", followed by the diagnostic the proxy synthesised.
+		// perform", followed by the diagnostic the proxy synthesized.
 		if !strings.Contains(strings.ToLower(out), "unwilling to perform") {
 			t.Errorf("want \"unwilling to perform\" (53), got:\n%s", out)
 		}
@@ -415,7 +415,7 @@ func TestE2EStartTLSRefused(t *testing.T) {
 	if err != nil {
 		t.Fatalf("TLS connection to the proxy: %v", err)
 	}
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// ExtendedRequest { requestName [0] OID }
 	op := tlv(0x80, []byte(OIDStartTLS))

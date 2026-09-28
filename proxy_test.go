@@ -75,7 +75,9 @@ func bindContent(dn, password string) []byte {
 func readOne(t *testing.T, c net.Conn) []byte {
 	t.Helper()
 	_ = c.SetReadDeadline(time.Now().Add(3 * time.Second))
-	defer c.SetReadDeadline(time.Time{})
+	// The deadline is cleared on return; an error here would only mean the
+	// connection is already gone, which the caller handles.
+	defer func() { _ = c.SetReadDeadline(time.Time{}) }()
 	buf := make([]byte, 1<<16)
 	n, err := c.Read(buf)
 	if err != nil {
@@ -265,14 +267,14 @@ func TestOtherExtendedForwarded(t *testing.T) {
 }
 
 // TestFailedRebindAfterUpstreamBindClosesConnection is a non-regression test on
-// an authorisation flaw.
+// an authorization flaw.
 //
 // After a successful substituted bind, the upstream connection carries the real
 // identity. If the client then sends a bind that fails LOCALLY, the proxy
 // answers 49 — it therefore believes itself anonymous — whereas the upstream is
 // still bound: the client would keep working with the rights of the previous
 // identity. §4.1 requires that "a failed bind resets the state" (RFC 4511
-// §4.2.1). Unable to re-anonymise the upstream without parsing the relayed
+// §4.2.1). Unable to re-anonymize the upstream without parsing the relayed
 // stream (which §4.2 forbids), the proxy must close the connection.
 func TestFailedRebindAfterUpstreamBindClosesConnection(t *testing.T) {
 	rig := newRig(t, testConfig(t, false))
@@ -366,12 +368,12 @@ func TestFailedRebindOnFreshConnectionStaysOpen(t *testing.T) {
 // TestRelayedMessageNotInterleavedWithSynthesizedResponse is a non-regression
 // test on the integrity of the client stream.
 //
-// The upstream → client relay and the synthesised responses (§4.1) write to the
+// The upstream → client relay and the synthesized responses (§4.1) write to the
 // same socket. If the relay released the lock BETWEEN TWO FRAGMENTS of the same
-// message — which io.Copy does with its 32 KiB buffer —, a synthesised response
+// message — which io.Copy does with its 32 KiB buffer —, a synthesized response
 // could insert itself in the middle of a message being relayed: the client
 // would read that response as the continuation of the previous message, and its
-// BER decoder would desynchronise permanently.
+// BER decoder would desynchronize permanently.
 //
 // The test does not presume the order of the two writes: it accumulates
 // everything the client receives, then checks that the stream decodes into a
@@ -395,7 +397,7 @@ func TestRelayedMessageNotInterleavedWithSynthesizedResponse(t *testing.T) {
 	go func() { _, _ = rig.upstream.Write(big) }()
 
 	// 3. We consume enough to put the relay mid-message, THEN send a request
-	//    refused locally — so at the precise moment when a synthesised write
+	//    refused locally — so at the precise moment when a synthesized write
 	//    can insert itself into the relay.
 	//
 	//    We use StartTLS rather than a refused bind: it is the proxy's fastest
@@ -420,7 +422,7 @@ func TestRelayedMessageNotInterleavedWithSynthesizedResponse(t *testing.T) {
 	// 4. We accumulate the rest, READING SLOWLY.
 	//
 	//    The slowness is deliberate: it spreads the relay over many writes and
-	//    gives the synthesised response all the time it needs to insert itself
+	//    gives the synthesized response all the time it needs to insert itself
 	//    if the lock is released between two fragments. This delay cannot make
 	//    the correct implementation fail — that one holds the lock for the
 	//    whole message, so the order stays right whatever the client's slowness;

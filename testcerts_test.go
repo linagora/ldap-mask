@@ -52,7 +52,7 @@ func selfSignedCert(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("writing the certificate: %v", err)
 	}
-	defer certOut.Close()
+	defer func() { _ = certOut.Close() }()
 	if err := pem.Encode(certOut, &pem.Block{Type: "CERTIFICATE", Bytes: der}); err != nil {
 		t.Fatalf("encoding the certificate: %v", err)
 	}
@@ -65,7 +65,7 @@ func selfSignedCert(t *testing.T, dir string) string {
 	if err != nil {
 		t.Fatalf("writing the key: %v", err)
 	}
-	defer keyOut.Close()
+	defer func() { _ = keyOut.Close() }()
 	if err := pem.Encode(keyOut, &pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER}); err != nil {
 		t.Fatalf("encoding the key: %v", err)
 	}
