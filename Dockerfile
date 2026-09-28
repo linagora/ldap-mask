@@ -23,4 +23,4 @@ USER nonroot
 EXPOSE 1636
 
 ENTRYPOINT ["/ldap-mask"]
-CMD ["-config", "/etc/ldap-mask/config.yaml"]
+CMD ["--config", "/etc/ldap-mask/config.yaml"]

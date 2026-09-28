@@ -95,7 +95,7 @@ func checkInsecureSkipVerify(insecure bool) error {
 		return nil
 	}
 	return fmt.Errorf("upstream.insecure_skip_verify is refused in a configuration file: "+
-		"set %s=1 to confirm, or pass -insecure-skip-verify on the command line",
+		"set %s=1 to confirm, or pass --insecure-skip-verify on the command line",
 		allowInsecureEnv)
 }
 

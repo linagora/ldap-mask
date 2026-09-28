@@ -8,7 +8,7 @@ import (
 )
 
 // HashPassword computes the bcrypt hash (default cost) of a password.
-// Used by the `-hash` subcommand.
+// Used by the `--hash` subcommand.
 func HashPassword(password string) (string, error) {
 	h, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
 	if err != nil {

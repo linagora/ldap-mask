@@ -65,7 +65,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 	}{
 		{
 			name: "listen",
-			args: []string{"-config", base, "-listen", "ldap://127.0.0.1:1390"},
+			args: []string{"--config", base, "--listen", "ldap://127.0.0.1:1390"},
 			check: func(t *testing.T, c *Config) {
 				if c.Listen != "ldap://127.0.0.1:1390" {
 					t.Errorf("Listen = %q", c.Listen)
@@ -74,7 +74,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 		},
 		{
 			name: "tls-cert and tls-key",
-			args: []string{"-config", base, "-tls-cert", "/certs/a.crt", "-tls-key", "/certs/a.key"},
+			args: []string{"--config", base, "--tls-cert", "/certs/a.crt", "--tls-key", "/certs/a.key"},
 			check: func(t *testing.T, c *Config) {
 				if c.TLS.CertFile != "/certs/a.crt" || c.TLS.KeyFile != "/certs/a.key" {
 					t.Errorf("TLS = %+v", c.TLS)
@@ -83,7 +83,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 		},
 		{
 			name: "upstream",
-			args: []string{"-config", base, "-upstream", "ldap://other.internal:389"},
+			args: []string{"--config", base, "--upstream", "ldap://other.internal:389"},
 			check: func(t *testing.T, c *Config) {
 				if c.Upstream.URL != "ldap://other.internal:389" {
 					t.Errorf("Upstream.URL = %q", c.Upstream.URL)
@@ -92,7 +92,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 		},
 		{
 			name: "upstream-ca",
-			args: []string{"-config", base, "-upstream-ca", "/certs/ca.crt"},
+			args: []string{"--config", base, "--upstream-ca", "/certs/ca.crt"},
 			check: func(t *testing.T, c *Config) {
 				if c.Upstream.CAFile != "/certs/ca.crt" {
 					t.Errorf("Upstream.CAFile = %q", c.Upstream.CAFile)
@@ -101,7 +101,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 		},
 		{
 			name: "insecure-skip-verify",
-			args: []string{"-config", base, "-insecure-skip-verify"},
+			args: []string{"--config", base, "--insecure-skip-verify"},
 			check: func(t *testing.T, c *Config) {
 				if !c.Upstream.InsecureSkipVerify {
 					t.Error("Upstream.InsecureSkipVerify = false")
@@ -110,7 +110,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 		},
 		{
 			name: "allow-unmapped-bind",
-			args: []string{"-config", base, "-allow-unmapped-bind"},
+			args: []string{"--config", base, "--allow-unmapped-bind"},
 			check: func(t *testing.T, c *Config) {
 				if !c.AllowUnmappedBind {
 					t.Error("AllowUnmappedBind = false")
@@ -138,7 +138,7 @@ func TestFlagsMapToConfig(t *testing.T) {
 // other values survive untouched.
 func TestFlagOverrideKeepsFileValues(t *testing.T) {
 	base := writeConfig(t, flagsBaseYAML(t))
-	fs, fc := flagsFlagSet(t, "-config", base, "-listen", "ldap://127.0.0.1:1390")
+	fs, fc := flagsFlagSet(t, "--config", base, "--listen", "ldap://127.0.0.1:1390")
 
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
@@ -161,12 +161,12 @@ func TestFlagOverrideKeepsFileValues(t *testing.T) {
 	}
 }
 
-// TestMapReplacesFileMappings: -map is a whole-field override, not an append.
+// TestMapReplacesFileMappings: --map is a whole-field override, not an append.
 func TestMapReplacesFileMappings(t *testing.T) {
 	base := writeConfig(t, flagsBaseYAML(t))
 	const other = `{"local_dn":"cn=other,dc=test","local_password":"pw",` +
 		`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"upstream-pw"}`
-	fs, fc := flagsFlagSet(t, "-config", base, "-map", other)
+	fs, fc := flagsFlagSet(t, "--config", base, "--map", other)
 
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
@@ -176,10 +176,10 @@ func TestMapReplacesFileMappings(t *testing.T) {
 		t.Fatalf("len(Mappings) = %d, want 1 (replaced, not appended)", len(cfg.Mappings))
 	}
 	if cfg.Mappings[0].LocalDN != "cn=other,dc=test" {
-		t.Errorf("LocalDN = %q, want the -map value", cfg.Mappings[0].LocalDN)
+		t.Errorf("LocalDN = %q, want the --map value", cfg.Mappings[0].LocalDN)
 	}
 	if cfg.Lookup("cn=test-admin,dc=test") != nil {
-		t.Error("the file's mapping survived the -map override")
+		t.Error("the file's mapping survived the --map override")
 	}
 }
 
@@ -190,9 +190,9 @@ func TestMapCleartextLocalPasswordIsHashed(t *testing.T) {
 	const mapping = `{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2",` +
 		`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"upstream-pw"}`
 	fs, fc := flagsFlagSet(t,
-		"-listen", "ldap://127.0.0.1:1389",
-		"-upstream", "ldap://ldap.internal:389",
-		"-map", mapping)
+		"--listen", "ldap://127.0.0.1:1389",
+		"--upstream", "ldap://ldap.internal:389",
+		"--map", mapping)
 
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
@@ -217,9 +217,9 @@ func TestFlagsOnlyCleartextNeedsNoTLS(t *testing.T) {
 	const mapping = `{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2",` +
 		`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"upstream-pw"}`
 	fs, fc := flagsFlagSet(t,
-		"-listen", "ldap://0.0.0.0:1389",
-		"-upstream", "ldap://127.0.0.1:389",
-		"-map", mapping)
+		"--listen", "ldap://0.0.0.0:1389",
+		"--upstream", "ldap://127.0.0.1:389",
+		"--map", mapping)
 
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
@@ -233,7 +233,7 @@ func TestFlagsOnlyCleartextNeedsNoTLS(t *testing.T) {
 	}
 }
 
-// TestMapErrors covers the rejection of malformed -map values.
+// TestMapErrors covers the rejection of malformed --map values.
 func TestMapErrors(t *testing.T) {
 	tests := []struct {
 		name  string
@@ -268,10 +268,10 @@ func TestMapErrors(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			fs, fc := flagsFlagSet(t, "-map", tc.value)
+			fs, fc := flagsFlagSet(t, "--map", tc.value)
 			_, _, err := buildConfig(fs, fc)
 			if err == nil {
-				t.Fatalf("-map %s accepted", tc.value)
+				t.Fatalf("--map %s accepted", tc.value)
 			}
 			if !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("error = %q, want it to contain %q", err, tc.want)
@@ -288,14 +288,14 @@ func TestNoConfigurationError(t *testing.T) {
 	if err == nil {
 		t.Fatal("an empty command line was accepted")
 	}
-	for _, want := range []string{"-config", "-listen"} {
+	for _, want := range []string{"--config", "--listen"} {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("error = %q, want it to name %q", err, want)
 		}
 	}
 }
 
-// TestConfigDashReadsStdin: "-config -" reads the configuration from standard
+// TestConfigDashReadsStdin: "--config -" reads the configuration from standard
 // input.
 func TestConfigDashReadsStdin(t *testing.T) {
 	path := writeConfig(t, flagsBaseYAML(t))
@@ -309,7 +309,7 @@ func TestConfigDashReadsStdin(t *testing.T) {
 	os.Stdin = f
 	defer func() { os.Stdin = old }()
 
-	fs, fc := flagsFlagSet(t, "-config", "-")
+	fs, fc := flagsFlagSet(t, "--config", "-")
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
 		t.Fatalf("buildConfig from stdin: %v", err)
@@ -320,7 +320,7 @@ func TestConfigDashReadsStdin(t *testing.T) {
 }
 
 // TestExplicitFalseOverridesFileTrue is the case a naive zero-value check gets
-// wrong: -insecure-skip-verify=false set explicitly must beat
+// wrong: --insecure-skip-verify=false set explicitly must beat
 // insecure_skip_verify: true in the file.
 func TestExplicitFalseOverridesFileTrue(t *testing.T) {
 	_ = os.Unsetenv("LDAP_MASK_ALLOW_INSECURE")
@@ -329,23 +329,23 @@ func TestExplicitFalseOverridesFileTrue(t *testing.T) {
 	base := writeConfig(t, body)
 
 	// Without the override, the file's true is refused (no exemption).
-	fs, fc := flagsFlagSet(t, "-config", base)
+	fs, fc := flagsFlagSet(t, "--config", base)
 	if _, _, err := buildConfig(fs, fc); err == nil {
 		t.Fatal("insecure_skip_verify: true accepted without an exemption")
 	}
 
 	// The explicit false wins.
-	fs, fc = flagsFlagSet(t, "-config", base, "-insecure-skip-verify=false")
+	fs, fc = flagsFlagSet(t, "--config", base, "--insecure-skip-verify=false")
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
 		t.Fatalf("explicit false refused: %v", err)
 	}
 	if cfg.Upstream.InsecureSkipVerify {
-		t.Error("the file's true won over the explicit -insecure-skip-verify=false")
+		t.Error("the file's true won over the explicit --insecure-skip-verify=false")
 	}
 }
 
-// TestMapErrorsDoNotLeakPasswords: the offending -map is identified by position,
+// TestMapErrorsDoNotLeakPasswords: the offending --map is identified by position,
 // never by echoing its value. Standard error is kept in CI logs and in
 // "docker logs" far longer and far more visibly than the process list, so a
 // password echoed here would outlive the argv exposure this mode already
@@ -364,7 +364,7 @@ func TestMapErrorsDoNotLeakPasswords(t *testing.T) {
 	}
 
 	for i, v := range values {
-		fs, fc := flagsFlagSet(t, "-map", v)
+		fs, fc := flagsFlagSet(t, "--map", v)
 		_, _, err := buildConfig(fs, fc)
 		if err == nil {
 			t.Fatalf("case %d: accepted, an error was expected", i+1)
@@ -372,8 +372,8 @@ func TestMapErrorsDoNotLeakPasswords(t *testing.T) {
 		if strings.Contains(err.Error(), localPw) || strings.Contains(err.Error(), remotePw) {
 			t.Errorf("case %d: the error echoes a password: %v", i+1, err)
 		}
-		if !strings.Contains(err.Error(), "-map #1") {
-			t.Errorf("case %d: the error does not name the offending -map: %v", i+1, err)
+		if !strings.Contains(err.Error(), "--map #1") {
+			t.Errorf("case %d: the error does not name the offending --map: %v", i+1, err)
 		}
 	}
 }
@@ -387,13 +387,13 @@ func TestInsecureSkipVerifyFlagNeedsNoExemption(t *testing.T) {
 
 	t.Run("flag alone", func(t *testing.T) {
 		fs, fc := flagsFlagSet(t,
-			"-listen", "ldap://127.0.0.1:1389",
-			"-upstream", "ldaps://directory.internal:636",
-			"-insecure-skip-verify",
-			"-map", `{"local_dn":"cn=a,dc=t","local_password":"pw","remote_dn":"cn=b,dc=e","remote_password":"up"}`)
+			"--listen", "ldap://127.0.0.1:1389",
+			"--upstream", "ldaps://directory.internal:636",
+			"--insecure-skip-verify",
+			"--map", `{"local_dn":"cn=a,dc=t","local_password":"pw","remote_dn":"cn=b,dc=e","remote_password":"up"}`)
 		cfg, _, err := buildConfig(fs, fc)
 		if err != nil {
-			t.Fatalf("-insecure-skip-verify refused without %s: %v", allowInsecureEnv, err)
+			t.Fatalf("--insecure-skip-verify refused without %s: %v", allowInsecureEnv, err)
 		}
 		if !cfg.Upstream.InsecureSkipVerify {
 			t.Error("the flag did not reach the configuration")
@@ -403,7 +403,7 @@ func TestInsecureSkipVerifyFlagNeedsNoExemption(t *testing.T) {
 	t.Run("flag overrides a file carrying true", func(t *testing.T) {
 		body := strings.Replace(flagsBaseYAML(t),
 			"insecure_skip_verify: false", "insecure_skip_verify: true", 1)
-		fs, fc := flagsFlagSet(t, "-config", writeConfig(t, body), "-insecure-skip-verify")
+		fs, fc := flagsFlagSet(t, "--config", writeConfig(t, body), "--insecure-skip-verify")
 		cfg, _, err := buildConfig(fs, fc)
 		if err != nil {
 			t.Fatalf("refused although the flag was given: %v", err)
@@ -416,14 +416,14 @@ func TestInsecureSkipVerifyFlagNeedsNoExemption(t *testing.T) {
 	t.Run("the file still needs the exemption", func(t *testing.T) {
 		body := strings.Replace(flagsBaseYAML(t),
 			"insecure_skip_verify: false", "insecure_skip_verify: true", 1)
-		fs, fc := flagsFlagSet(t, "-config", writeConfig(t, body))
+		fs, fc := flagsFlagSet(t, "--config", writeConfig(t, body))
 		if _, _, err := buildConfig(fs, fc); err == nil {
 			t.Fatalf("the file's true was accepted without %s", allowInsecureEnv)
 		}
 	})
 }
 
-// TestMapEnvExpansion: ${VAR} in a -map's remote_dn and remote_password is
+// TestMapEnvExpansion: ${VAR} in a --map's remote_dn and remote_password is
 // expanded exactly as in the file form.
 func TestMapEnvExpansion(t *testing.T) {
 	t.Setenv("LDAP_ADMIN_DN", "cn=admin,dc=example,dc=com")
@@ -432,9 +432,9 @@ func TestMapEnvExpansion(t *testing.T) {
 	mapping := fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
 		`"remote_dn":"${LDAP_ADMIN_DN}","remote_password":"${LDAP_ADMIN_PASSWORD}"}`, flagsBcryptHash(t))
 	fs, fc := flagsFlagSet(t,
-		"-listen", "ldap://127.0.0.1:1389",
-		"-upstream", "ldap://ldap.internal:389",
-		"-map", mapping)
+		"--listen", "ldap://127.0.0.1:1389",
+		"--upstream", "ldap://ldap.internal:389",
+		"--map", mapping)
 
 	cfg, _, err := buildConfig(fs, fc)
 	if err != nil {
@@ -448,13 +448,13 @@ func TestMapEnvExpansion(t *testing.T) {
 	}
 }
 
-// TestMapEnvExpansionMissingVariable: a ${VAR} referenced in -map but absent
+// TestMapEnvExpansionMissingVariable: a ${VAR} referenced in --map but absent
 // from the environment fails startup, and the error never echoes the password.
 func TestMapEnvExpansionMissingVariable(t *testing.T) {
 	const remotePw = "REMOTE-SECRET-9a1c"
 	value := fmt.Sprintf(`{"local_dn":"cn=a,dc=t","local_password_bcrypt":%q,`+
 		`"remote_dn":"cn=b,dc=e","remote_password":"${LDAP_MASK_TEST_UNDEFINED_VAR}"}`, flagsBcryptHash(t))
-	fs, fc := flagsFlagSet(t, "-map", value)
+	fs, fc := flagsFlagSet(t, "--map", value)
 	_, _, err := buildConfig(fs, fc)
 	if err == nil {
 		t.Fatal("a missing ${VAR} was accepted")
@@ -481,25 +481,25 @@ func TestMapLiteralPasswordWarning(t *testing.T) {
 	}{
 		{
 			name: "bcrypt local password and ${VAR} remote password",
-			args: []string{"-map", fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
+			args: []string{"--map", fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
 				`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"${LDAP_ADMIN_PASSWORD}"}`, hash)},
 			want: false,
 		},
 		{
 			name: "literal remote password",
-			args: []string{"-map", fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
+			args: []string{"--map", fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
 				`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"hunter2-upstream"}`, hash)},
 			want: true,
 		},
 		{
 			name: "cleartext local password",
-			args: []string{"-map", `{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2",` +
+			args: []string{"--map", `{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2",` +
 				`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"${LDAP_ADMIN_PASSWORD}"}`},
 			want: true,
 		},
 		{
 			name: "remote password mixing a literal prefix and ${VAR}",
-			args: []string{"-map", fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
+			args: []string{"--map", fmt.Sprintf(`{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":%q,`+
 				`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"prefix${LDAP_ADMIN_PASSWORD}"}`, hash)},
 			want: true,
 		},
@@ -507,7 +507,7 @@ func TestMapLiteralPasswordWarning(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			args := append([]string{"-listen", "ldap://127.0.0.1:1389", "-upstream", "ldap://ldap.internal:389"}, tc.args...)
+			args := append([]string{"--listen", "ldap://127.0.0.1:1389", "--upstream", "ldap://ldap.internal:389"}, tc.args...)
 			fs, fc := flagsFlagSet(t, args...)
 			_, literal, err := buildConfig(fs, fc)
 			if err != nil {

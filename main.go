@@ -30,30 +30,21 @@ func main() {
 }
 
 func run() error {
-	// We extract -hash ourselves to accept both `-hash` (password read on
-	// stdin) and `-hash=<password>`.
+	// We extract --hash ourselves to accept both `--hash` (password read on
+	// stdin) and `--hash=<password>`.
 	hashMode, hashValue, rest := extractHashFlag(os.Args[1:])
 
 	fs := flag.NewFlagSet("ldap-mask", flag.ExitOnError)
 	fc := registerFlags(fs)
 	showVersion := fs.Bool("version", false, "print the version and exit")
-	// -hash is stripped from os.Args before this FlagSet sees it (it has to
-	// accept a bare "-hash" as well as "-hash=VALUE"), so it would not show up in
-	// the generated help. Append it by hand.
-	fs.Usage = func() {
-		_, _ = fmt.Fprintf(fs.Output(), "Usage: ldap-mask [options]\n\nOptions:\n")
-		fs.PrintDefaults()
-		_, _ = fmt.Fprintf(fs.Output(), "\n  -hash [PASSWORD]\n"+
-			"\tgenerate a bcrypt hash of PASSWORD and exit; without a value, the\n"+
-			"\tpassword is read on standard input\n")
-	}
+	fs.Usage = func() { printUsage(fs) }
 	_ = fs.Parse(rest)
 
 	// No positional argument is expected. Ignoring them silently is precisely
 	// what caused hashing standard input instead of the supplied password: we
 	// refuse explicitly rather than guess.
 	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected positional argument %q (options start with \"-\")", fs.Arg(0))
+		return fmt.Errorf("unexpected positional argument %q (options start with \"--\")", fs.Arg(0))
 	}
 
 	if *showVersion {
@@ -65,7 +56,7 @@ func run() error {
 		if hashValue != "" {
 			fmt.Fprintln(os.Stderr,
 				"warning: a password passed as an argument is visible in the process "+
-					"list (ps) and in the shell history; prefer \"ldap-mask -hash\" "+
+					"list (ps) and in the shell history; prefer \"ldap-mask --hash\" "+
 					"and typing on standard input.")
 		}
 		password, err := readPasswordForHash(hashValue)
@@ -87,6 +78,25 @@ func run() error {
 	return serve(cfg, literalPassword)
 }
 
+// printUsage replaces fs.PrintDefaults, which spells every option with a
+// single dash; package flag accepts both spellings and we document "--".
+// --hash is stripped from os.Args before fs sees it (it has to accept a bare
+// "--hash" as well as "--hash=VALUE"), so it is appended by hand.
+func printUsage(fs *flag.FlagSet) {
+	out := fs.Output()
+	_, _ = fmt.Fprintf(out, "Usage: ldap-mask [options]\n\nOptions:\n")
+	fs.VisitAll(func(f *flag.Flag) {
+		arg, usage := flag.UnquoteUsage(f)
+		if arg != "" {
+			arg = " " + arg
+		}
+		_, _ = fmt.Fprintf(out, "  --%s%s\n\t%s\n", f.Name, arg, strings.ReplaceAll(usage, "\n", "\n\t"))
+	})
+	_, _ = fmt.Fprintf(out, "  --hash [PASSWORD]\n"+
+		"\tgenerate a bcrypt hash of PASSWORD and exit; without a value, the\n"+
+		"\tpassword is read on standard input\n")
+}
+
 // flagConfig holds the command-line configuration options.
 type flagConfig struct {
 	config        string
@@ -101,7 +111,7 @@ type flagConfig struct {
 }
 
 // registerFlags declares the configuration flags on fs and returns their
-// targets. -config defaults to the empty string: no file is read unless asked
+// targets. --config defaults to the empty string: no file is read unless asked
 // for, so the proxy can run on flags alone.
 func registerFlags(fs *flag.FlagSet) *flagConfig {
 	fc := &flagConfig{}
@@ -110,7 +120,7 @@ func registerFlags(fs *flag.FlagSet) *flagConfig {
 	fs.StringVar(&fc.listen, "listen", "",
 		"listener URL, e.g. \"ldaps://0.0.0.0:1636\" (scheme mandatory: ldap or ldaps)")
 	fs.StringVar(&fc.tlsCert, "tls-cert", "", "TLS certificate presented to clients (ldaps:// listener only)")
-	fs.StringVar(&fc.tlsKey, "tls-key", "", "private key of -tls-cert")
+	fs.StringVar(&fc.tlsKey, "tls-key", "", "private key of --tls-cert")
 	fs.StringVar(&fc.upstream, "upstream", "", "upstream directory URL, e.g. \"ldaps://directory.internal:636\"")
 	fs.StringVar(&fc.upstreamCA, "upstream-ca", "", "CA file used to verify the upstream certificate (ca_file)")
 	fs.BoolVar(&fc.insecureSkip, "insecure-skip-verify", false,
@@ -129,22 +139,22 @@ var configFlagNames = []string{
 	"insecure-skip-verify", "allow-unmapped-bind", "map",
 }
 
-// buildConfig assembles the configuration: the file first (if -config was
+// buildConfig assembles the configuration: the file first (if --config was
 // given), then only the flags explicitly present on the command line. The
 // returned bool reports whether a password arrived literally on the command
 // line (see parseMappings), for the single startup WARN in serve.
 //
 // Only the flags actually SET override the file. Inferring "was it set?" from a
 // zero value would make it impossible to override a file's true with an explicit
-// -insecure-skip-verify=false, or to empty out a field.
+// --insecure-skip-verify=false, or to empty out a field.
 func buildConfig(fs *flag.FlagSet, fc *flagConfig) (*Config, bool, error) {
 	set := make(map[string]bool)
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 
 	if !configured(set, fc) {
-		return nil, false, errors.New("no configuration: pass -config PATH (or -config - to read " +
+		return nil, false, errors.New("no configuration: pass --config PATH (or --config - to read " +
 			"it from standard input), or configure the proxy directly with the " +
-			"command-line flags (-listen, -upstream, -map, …)")
+			"command-line flags (--listen, --upstream, --map, …)")
 	}
 
 	cfg := &Config{}
@@ -178,7 +188,7 @@ func buildConfig(fs *flag.FlagSet, fc *flagConfig) (*Config, bool, error) {
 		cfg.AllowUnmappedBind = fc.allowUnmapped
 	}
 	literalPassword := false
-	// -map replaces the file's mappings list wholesale (§5); it never appends.
+	// --map replaces the file's mappings list wholesale (§5); it never appends.
 	if set["map"] {
 		mappings, literal, err := parseMappings(fc.maps)
 		if err != nil {
@@ -202,7 +212,7 @@ func buildConfig(fs *flag.FlagSet, fc *flagConfig) (*Config, bool, error) {
 }
 
 // configured reports whether any source of configuration was requested: a file
-// (-config), or at least one configuration flag.
+// (--config), or at least one configuration flag.
 func configured(set map[string]bool, fc *flagConfig) bool {
 	if fc.config != "" {
 		return true
@@ -215,10 +225,10 @@ func configured(set map[string]bool, fc *flagConfig) bool {
 	return false
 }
 
-// mapList collects the repeatable -map values, one JSON object each.
+// mapList collects the repeatable --map values, one JSON object each.
 type mapList []string
 
-// String returns a placeholder: the raw -map values carry passwords and must
+// String returns a placeholder: the raw --map values carry passwords and must
 // never surface in the usage output.
 func (m *mapList) String() string { return "..." }
 
@@ -228,7 +238,7 @@ func (m *mapList) Set(value string) error {
 	return nil
 }
 
-// mapEntry is the JSON object of one -map occurrence (DESIGN.md §5). The local
+// mapEntry is the JSON object of one --map occurrence (DESIGN.md §5). The local
 // password fields are pointers so that "given but empty" is distinguishable
 // from "absent".
 type mapEntry struct {
@@ -239,7 +249,7 @@ type mapEntry struct {
 	RemotePassword      string  `json:"remote_password"`
 }
 
-// parseMappings converts the -map JSON values into mappings, expanding ${VAR}
+// parseMappings converts the --map JSON values into mappings, expanding ${VAR}
 // in remote_dn and remote_password (DESIGN.md §5) and hashing a cleartext
 // local_password so handleBind only ever compares a bcrypt hash. The returned
 // bool reports whether a password appeared literally on the command line: a
@@ -249,10 +259,10 @@ func parseMappings(values []string) ([]Mapping, bool, error) {
 	out := make([]Mapping, 0, len(values))
 	literalPassword := false
 	for i, raw := range values {
-		// Identify the offending -map by POSITION, never by echoing its value:
+		// Identify the offending --map by POSITION, never by echoing its value:
 		// that value carries the passwords, and standard error is often kept
 		// (CI logs, "docker logs") longer and more visibly than the process list.
-		where := fmt.Sprintf("-map #%d", i+1)
+		where := fmt.Sprintf("--map #%d", i+1)
 
 		dec := json.NewDecoder(strings.NewReader(raw))
 		dec.DisallowUnknownFields()
@@ -325,10 +335,12 @@ func parseMappings(values []string) ([]Mapping, bool, error) {
 	return out, literalPassword, nil
 }
 
-// extractHashFlag removes -hash / --hash / -hash=VALUE / -hash VALUE from args
-// and returns the hash mode, the optional value and the remaining arguments.
+// extractHashFlag removes --hash / --hash=VALUE / --hash VALUE (or their
+// single-dash spellings, which package flag accepts for every other option)
+// from args and returns the hash mode, the optional value and the remaining
+// arguments.
 //
-// The separate form "-hash <password>" is accepted. Without it, the password
+// The separate form "--hash <password>" is accepted. Without it, the password
 // passed as an argument would be silently ignored and the hash computed on
 // standard input: the user would walk away with the hash of another password,
 // with not the slightest signal.
@@ -340,7 +352,7 @@ func extractHashFlag(args []string) (hashMode bool, hashValue string, rest []str
 		case a == "-hash" || a == "--hash":
 			hashMode = true
 			// We consume the following argument only if it is not a
-			// flag: "-hash -config x.yaml" must keep reading the
+			// flag: "--hash --config x.yaml" must keep reading the
 			// password on standard input.
 			if i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
 				hashValue = args[i+1]
@@ -415,7 +427,7 @@ func listenFor(cfg *Config) (net.Listener, error) {
 
 // serve serves the validated configuration until SIGINT/SIGTERM.
 // literalPassword is true when a password arrived literally on the command
-// line (-map), as opposed to only through a ${VAR} reference, which is
+// line (--map), as opposed to only through a ${VAR} reference, which is
 // reported with a single warning.
 func serve(cfg *Config, literalPassword bool) error {
 	logger := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))

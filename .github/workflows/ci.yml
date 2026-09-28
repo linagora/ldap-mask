@@ -125,4 +125,4 @@ jobs:
         # Smoke test: without a valid configuration the proxy must exit with an
         # error, but the executable must still start. So we check the version,
         # which depends on neither the configuration nor the network.
-        run: docker run --rm ldap-mask:ci -version
+        run: docker run --rm ldap-mask:ci --version
