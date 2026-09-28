@@ -124,22 +124,124 @@ upstream:
 At startup, the proxy then reports every leg left in cleartext on standard
 error.
 
-## Options
+Every setting above can also be given as a **flag, with no file at all** — see
+[Command line](#command-line).
 
-| Option | Default | Description |
+## Command line
+
+The configuration file is one of **two** sources. Every setting it carries can
+also be given as a flag, so the proxy can run **with no file at all** — the case
+of a binary dropped into a throwaway container, where mounting a file is
+friction.
+
+| Flag | Default | Description |
 |---|---|---|
-| `-config` | `config.yaml` | Path to the configuration file. |
-| `-hash` | — | Generates a bcrypt hash; password read from standard input or passed as an argument. |
+| `-config PATH` | *(none)* | YAML configuration file. `-` reads it from standard input. No file is read unless the flag is given. |
+| `-listen URL` | — | Listener URL, e.g. `ldaps://0.0.0.0:1636`. The scheme is mandatory (`ldap` or `ldaps`). |
+| `-tls-cert PATH` | — | Certificate presented to clients (only for an `ldaps://` listener). |
+| `-tls-key PATH` | — | Private key of `-tls-cert`. |
+| `-upstream URL` | — | Upstream directory URL, e.g. `ldaps://directory.internal:636`. |
+| `-upstream-ca PATH` | — | CA file used to verify the upstream certificate (`ca_file`). |
+| `-insecure-skip-verify` | `false` | Do not verify the upstream certificate. The flag needs no confirmation; the equivalent config key does. |
+| `-allow-unmapped-bind` | `false` | Relay a bind whose DN is not mapped instead of refusing it. |
+| `-map JSON` | — | One mapping as a JSON object; repeat once per mapping. Replaces the file's whole `mappings` list. |
+| `-hash [PASSWORD]` | — | Generates a bcrypt hash; password read from standard input or passed as an argument. |
 | `-version` | — | Prints the version and exits. |
 
-By default the proxy **refuses** `insecure_skip_verify: true` upstream. To
-allow it anyway, it must be requested explicitly:
+Disabling upstream certificate verification is guarded **asymmetrically**, on
+purpose:
+
+- **`-insecure-skip-verify` on the command line works as-is.** Typing it is a
+  deliberate act every time, and this is the throwaway-container case.
+- **`insecure_skip_verify: true` in a configuration file is refused** unless
+  `LDAP_MASK_ALLOW_INSECURE=1` confirms it:
+
+  ```bash
+  LDAP_MASK_ALLOW_INSECURE=1 ./ldap-mask -config config.yaml
+  ```
+
+  A file is the one form that can arrive without anyone deciding it — copied
+  from a colleague, or from an example — and verification would then be gone
+  silently. The refusal names both ways out.
+
+Either way the proxy emits a `WARN` at startup saying the upstream certificate
+is not verified.
+
+### Flags-only example (throwaway container)
+
+A cleartext listener and a cleartext upstream need **no certificate, no key and
+no file** — this is the nominal use of the flag mode:
 
 ```bash
-LDAP_MASK_ALLOW_INSECURE=1 ./ldap-mask -config config.yaml
+./ldap-mask \
+  -listen   'ldap://0.0.0.0:1389' \
+  -upstream 'ldap://directory.internal:389' \
+  -map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"the-real-admin-password"}'
 ```
 
-This is the only way to enable that option — reserved for troubleshooting.
+The TLS variant simply adds the certificate material (and, for a verified
+upstream, `-upstream-ca`):
+
+```bash
+./ldap-mask \
+  -listen   'ldaps://0.0.0.0:1636' \
+  -tls-cert /certs/proxy.crt -tls-key /certs/proxy.key \
+  -upstream 'ldaps://directory.internal:636' -upstream-ca /certs/internal-ca.crt \
+  -map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"the-real-admin-password"}'
+```
+
+### Precedence
+
+The file is read first (when `-config` is given), then **only the flags actually
+present on the command line** override the corresponding values. A flag that is
+not given leaves the file's value alone; a flag that is given overrides it —
+including an explicit `-insecure-skip-verify=false`, which therefore beats
+`insecure_skip_verify: true` in the file. `-map` **replaces** the whole
+`mappings` list; it never appends to it. Validation runs once, on the result,
+whichever path produced it.
+
+### The `-map` JSON format
+
+`-map` takes a JSON object, repeated once per mapping:
+
+```
+-map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"s3cret"}'
+```
+
+JSON and not `key=value` because a DN contains commas (`cn=a,dc=t`): any
+comma-separated mini-syntax is broken by design.
+
+`remote_dn` and `remote_password` support the same `${VAR}` expansion as the
+configuration file, so the real password does not have to appear literally in
+`-map`:
+
+```
+-map '{"local_dn":"cn=test-admin,dc=test","local_password_bcrypt":"$2a$…","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"${LDAP_ADMIN_PASSWORD}"}'
+```
+
+The single quotes are required so the **shell** does not expand `${LDAP_ADMIN_PASSWORD}`
+itself before it reaches the proxy; the proxy resolves it against its own
+environment.
+
+| Key | Required | Description |
+|---|---|---|
+| `local_dn` | yes | The fictitious DN the client binds with (lookup key). |
+| `local_password` | one of the two | Cleartext local password, hashed with bcrypt **at startup**. |
+| `local_password_bcrypt` | one of the two | A pre-computed bcrypt hash (from `-hash`). |
+| `remote_dn` | yes | The real DN presented to the upstream directory. `${VAR}` is expanded. |
+| `remote_password` | yes | The real password presented to the upstream directory. `${VAR}` is expanded. |
+
+### Cleartext passwords on the command line
+
+> **A password passed literally on the command line is visible** in the
+> process list (`ps`) and in the shell history of a shared host. That is the
+> trade-off this mode accepts: it is what lets the proxy run with no file to
+> mount. When a password arrives this way — a cleartext `local_password`, or a
+> `remote_password` not written as `"${VAR}"` — the proxy emits a **single
+> `WARN` at startup** so the operator cannot miss it. On a machine you share,
+> prefer `local_password_bcrypt` together with `remote_password: "${VAR}"` in
+> `-map` (a configuration file remains possible too), which keeps the real
+> password off the command line entirely.
 
 ## Docker
 
@@ -169,6 +271,17 @@ if your configuration references another `${…}` variable).
 The proxy **refuses to start** if a variable referenced by `${…}` is absent,
 rather than starting with an empty value — the message names the offending
 mapping.
+
+For a container you would rather not mount *anything* into, the flags-only mode
+removes both the configuration file and the certificate — a cleartext listener
+needs no TLS material at all:
+
+```bash
+docker run --rm -p 1389:1389 ldap-mask \
+  -listen   'ldap://0.0.0.0:1389' \
+  -upstream 'ldap://directory.internal:389' \
+  -map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"s3cret"}'
+```
 
 ## Verification
 
@@ -213,7 +326,12 @@ and **real** clients (`ldapwhoami`, `ldapsearch`); they only start if
   crosses the network unencrypted — that is the leg that matters most. Both
   modes exist because this is a debug tool, but every cleartext leg is reported
   at startup.
-- **Secret in an environment variable**, never written on disk.
+- **Secret in an environment variable**, never written on disk: a
+  `remote_password: "${VAR}"` in the file, or the same `"${VAR}"` form in a
+  `-map` entry. The flags-only mode is the exception only when a password is
+  given literally: it then sits on the command line and is readable in `ps`
+  and the shell history — the proxy warns about it once at startup (see
+  [Command line](#cleartext-passwords-on-the-command-line)).
 - **No failure counter and no lockout in v1.** bcrypt bounds the rate, but the
   proxy must not be exposed beyond a trusted network.
 

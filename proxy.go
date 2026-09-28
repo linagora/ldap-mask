@@ -119,7 +119,7 @@ func buildUpstreamTLS(cfg *Config, u *url.URL) (*tls.Config, error) {
 	tlsCfg := &tls.Config{
 		ServerName:         u.Hostname(),
 		MinVersion:         tls.VersionTLS12,
-		InsecureSkipVerify: cfg.Upstream.InsecureSkipVerify, // validated in Config.Validate
+		InsecureSkipVerify: cfg.Upstream.InsecureSkipVerify,
 	}
 	if cfg.Upstream.CAFile != "" {
 		pem, err := os.ReadFile(cfg.Upstream.CAFile)

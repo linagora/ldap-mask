@@ -4,6 +4,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/url"
 	"os"
@@ -70,9 +71,44 @@ func expandEnv(s string) (string, error) {
 
 // Load reads the file, resolves the ${VAR} then validates the configuration.
 func Load(path string) (*Config, error) {
-	data, err := os.ReadFile(path)
+	c, err := parseConfig(path)
 	if err != nil {
-		return nil, fmt.Errorf("reading configuration %q: %w", path, err)
+		return nil, err
+	}
+	if err := checkInsecureSkipVerify(c.Upstream.InsecureSkipVerify); err != nil {
+		return nil, err
+	}
+	if err := c.Validate(); err != nil {
+		return nil, err
+	}
+	return c, nil
+}
+
+// allowInsecureEnv is the environment variable that confirms a config-file
+// request to skip upstream certificate verification.
+const allowInsecureEnv = "LDAP_MASK_ALLOW_INSECURE"
+
+// checkInsecureSkipVerify refuses a file-sourced insecure_skip_verify unless
+// the override is confirmed; see DESIGN.md §6.4.
+func checkInsecureSkipVerify(insecure bool) error {
+	if !insecure || os.Getenv(allowInsecureEnv) == "1" {
+		return nil
+	}
+	return fmt.Errorf("upstream.insecure_skip_verify is refused in a configuration file: "+
+		"set %s=1 to confirm, or pass -insecure-skip-verify on the command line",
+		allowInsecureEnv)
+}
+
+// parseConfig reads a configuration source, resolves the ${VAR} references and
+// returns it WITHOUT validating it.
+//
+// Validation is left to the caller because the command-line flags may complete
+// or override the file before Validate runs: validating here would reject a file
+// the flags were about to fix.
+func parseConfig(path string) (*Config, error) {
+	data, err := readConfigSource(path)
+	if err != nil {
+		return nil, err
 	}
 
 	var c Config
@@ -89,11 +125,24 @@ func Load(path string) (*Config, error) {
 			return nil, fmt.Errorf("mapping %d (local_dn %q): remote_password: %w", i, m.LocalDN, err)
 		}
 	}
-
-	if err := c.Validate(); err != nil {
-		return nil, err
-	}
 	return &c, nil
+}
+
+// readConfigSource returns the raw configuration of a source: the file at path,
+// or standard input when path is "-".
+func readConfigSource(path string) ([]byte, error) {
+	if path == "-" {
+		data, err := io.ReadAll(os.Stdin)
+		if err != nil {
+			return nil, fmt.Errorf("reading configuration on standard input: %w", err)
+		}
+		return data, nil
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("reading configuration %q: %w", path, err)
+	}
+	return data, nil
 }
 
 // ListenScheme returns the scheme declared in `listen`: "ldap" (cleartext) or
@@ -239,13 +288,6 @@ func (c *Config) Validate() error {
 	// cleartext on disk (§6.2).
 	if u.User != nil {
 		return fmt.Errorf("upstream.url %q: unexpected credentials, they are declared in the mappings (remote_dn / remote_password)", c.Upstream.URL)
-	}
-
-	// §6.4: TLS on both sides is non-negotiable. We therefore refuse to disable
-	// verification of the upstream certificate, except by explicit exemption
-	// through an environment variable (useful in tests only).
-	if c.Upstream.InsecureSkipVerify && os.Getenv("LDAP_MASK_ALLOW_INSECURE") != "1" {
-		return errors.New("upstream.insecure_skip_verify forbidden (TLS non-negotiable, §6.4); set LDAP_MASK_ALLOW_INSECURE=1 to override")
 	}
 
 	if len(c.Mappings) == 0 {

@@ -162,6 +162,19 @@ re-encoding, hence no risk of altering an exotic control or a binary attribute.
 
 ## 5. Configuration
 
+There are **two sources**: the YAML file and the command-line flags. The file is
+read only if `-config` is given (`-` reads it from standard input); otherwise the
+proxy starts from an empty configuration. The file is applied first, then **only
+the flags actually present on the command line** override the corresponding
+values — a flag left out never overwrites the file, so an explicit
+`-insecure-skip-verify=false` beats `insecure_skip_verify: true` in the file.
+`-map` replaces the whole `mappings` list rather than appending to it.
+`Validate` runs once, on the merged result, whichever path produced it; running
+entirely from flags, with no file, is therefore first-class. A cleartext
+listener needs no certificate material, from either source.
+
+The file form, which the flags mirror field for field:
+
 ```yaml
 # The scheme decides the listener mode, and it is MANDATORY:
 #   ldaps:// → TLS terminated on the proxy (tls: required)
@@ -187,6 +200,10 @@ allow_unmapped_bind: false
 ```
 
 - `${VAR}` is resolved from the environment at load time.
+- `-map` takes one JSON object per mapping (not `key=value`: a DN contains
+  commas, e.g. `cn=a,dc=t`, which breaks any comma-separated mini-syntax by
+  design). It supports the same `${VAR}` expansion as the file, on `remote_dn`
+  and `remote_password`.
 - The local DN serves as the lookup key, normalized (lowercased, spaces around
   commas removed). **Accepted approximation**: this is not a real DN parser
   (escaping, `\+`, quotes). To be replaced with a correct parser if the need
@@ -210,6 +227,16 @@ This is the part to re-read before deploying.
    Hence: a separate container, secret injected via environment variable, real
    password never written on disk.
 
+   Running from flags trades that away deliberately, but only when it has to:
+   a `remote_password` given as `${VAR}` in `-map` is resolved from the
+   environment and never appears on argv, exactly as in the file. A password
+   given literally — a `remote_password` typed as plain text, or a cleartext
+   `local_password` (there is no `${VAR}` form for it, only the pre-hashed
+   `local_password_bcrypt`) — sits on the command line, where it is readable in
+   the process list (`ps`) and the shell history of a shared host. The proxy
+   reports it with a single `WARN` at startup so it cannot be missed, but it
+   cannot protect a value it was handed on argv.
+
 3. **Known leaks, not addressed in v1:**
    - `Root DSE` → `namingContexts` reveals the directory's real suffix.
    - Extended operation `WhoAmI` (`1.3.6.1.4.1.4203.1.11.3`) → returns the real
@@ -229,9 +256,14 @@ This is the part to re-read before deploying.
    unencrypted. The proxy **logs a `WARN` at startup for each cleartext leg**:
    the operator must not be able to ignore it.
 
-   The only setting that remains **forbidden by default** is
-   `insecure_skip_verify`, which does not weaken encryption but the *identity
-   verification* of the upstream (see `config.go` and `LDAP_MASK_ALLOW_INSECURE`).
+   `insecure_skip_verify` does not weaken encryption but the *identity
+   verification* of the upstream, so it is guarded — **asymmetrically**, and
+   deliberately so. On the command line, `-insecure-skip-verify` works as-is:
+   typing it is a deliberate act every time. In a configuration file it is
+   refused unless `LDAP_MASK_ALLOW_INSECURE=1` confirms it, because a file is
+   the one form that can be inherited without anyone deciding it — copied from a
+   colleague or from an example, it would remove verification silently. Either
+   way a `WARN` says so at startup.
 
 5. **Anti-bruteforce**: bcrypt is slow by construction, which bounds the rate.
    No failure counter and no lockout in v1 — to be added if the proxy is
@@ -338,4 +370,9 @@ A throwaway OpenLDAP directory in a container, an admin account, then:
 5. The **real** password must **never** be accepted on the local DN.
 6. `ldapsearch` with paged results → verify that the control passes through.
 7. Build the stripped static binary, then run it in a container to validate
-the image (CA bundle, config, `${ENV}`).
+   the image (CA bundle, config, `${ENV}`).
+8. Run once with **no configuration file at all**, everything on the command
+   line (`-listen`, `-upstream`, `-map`), cleartext listener and no certificate
+   material: this is the throwaway-container mode. A bind must succeed, and the
+   `WARN` about a password given literally on the command line must appear
+   exactly once.
