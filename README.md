@@ -8,6 +8,31 @@ with the real DN and the real password.
 The design — principle, scope, BER format, security — is detailed in
 [`DESIGN.md`](DESIGN.md).
 
+## Quick start
+
+Build, then run with flags only — no configuration file, no certificate:
+
+```bash
+go build -o ldap-mask .
+
+./ldap-mask \
+  --listen   'ldap://0.0.0.0:1389' \
+  --upstream 'ldap://directory.internal:389' \
+  --map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"the-real-admin-password"}'
+```
+
+Clients now bind to the proxy with the local identity; the proxy rebinds
+upstream as `cn=admin,dc=example,dc=com`:
+
+```bash
+ldapsearch -H ldap://localhost:1389 -D 'cn=test-admin,dc=test' -w 'hunter2' -b 'dc=example,dc=com'
+```
+
+Both legs are cleartext and the passwords sit on the command line: fine for a
+test bench, not beyond. For TLS, a configuration file or keeping the real
+password off the command line, read on — [Running with a configuration
+file](#running-with-a-configuration-file) and [Command line](#command-line).
+
 ## What it does / what it does not do
 
 | Does                                                                                       | Does not do                                              |
@@ -35,7 +60,7 @@ Each cleartext leg is reported with a `WARN` at startup.
 The known leaks not addressed in v1 (Root DSE, `WhoAmI`, referrals) are
 documented in [`DESIGN.md` §6](DESIGN.md#6-security--what-the-proxy-does-not-protect).
 
-## Quick start
+## Running with a configuration file
 
 ### 1. Build
 
