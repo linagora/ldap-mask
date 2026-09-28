@@ -1,0 +1,97 @@
+name: E2E
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+  workflow_dispatch:
+
+# Read-only: no job writes to the repository.
+permissions:
+  contents: read
+
+jobs:
+  e2e:
+    name: Integration (real OpenLDAP)
+    runs-on: ubuntu-latest
+
+    # Real OpenLDAP directory for the upstream leg.
+    #
+    # BOTH ports are exposed: the proxy must work with a cleartext upstream
+    # (389) as well as a TLS one (636), and the full listener x upstream matrix
+    # is covered by the tests.
+    #
+    # The container's TLS certificate is self-signed and regenerated on every
+    # start: it cannot be pinned. The corresponding test therefore passes
+    # insecure_skip_verify, with the explicit override that Config.Validate
+    # requires (§6.4) — this is a test choice, not a proxy default.
+    services:
+      ldap:
+        image: osixia/openldap:1.5.0
+        env:
+          LDAP_ORGANISATION: Test Corp
+          LDAP_DOMAIN: example.com
+          # Quoted value: "!" is a YAML tag indicator.
+          LDAP_ADMIN_PASSWORD: "RealAdminPw!42"
+          LDAP_TLS: "true"
+          LDAP_TLS_VERIFY_CLIENT: never
+        ports:
+          - 389:389
+          - 636:636
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install the OpenLDAP client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ldap-utils
+
+      - name: Wait for OpenLDAP to be reachable
+        # We do not want to race the service startup: we poll in a loop with a
+        # maximum delay. We wait for BOTH legs, cleartext and TLS: the TLS one
+        # may appear a few seconds after the cleartext one.
+        run: |
+          cleartext=0; tls=0
+          for i in $(seq 1 60); do
+            if [ "$cleartext" -eq 0 ] && ldapwhoami -o nettimeout=5 -x -H ldap://localhost:389 \
+                 -D "cn=admin,dc=example,dc=com" -w "RealAdminPw!42" >/dev/null 2>&1; then
+              cleartext=1; echo "OpenLDAP (cleartext) is ready."
+            fi
+            if [ "$tls" -eq 0 ] && LDAPTLS_REQCERT=never ldapwhoami -o nettimeout=5 -x -H ldaps://localhost:636 \
+                 -D "cn=admin,dc=example,dc=com" -w "RealAdminPw!42" >/dev/null 2>&1; then
+              tls=1; echo "OpenLDAP (TLS) is ready."
+            fi
+            [ "$cleartext" -eq 1 ] && [ "$tls" -eq 1 ] && exit 0
+            echo "Waiting for OpenLDAP... cleartext=$cleartext tls=$tls ($i/60)"
+            sleep 2
+          done
+          echo "::error::OpenLDAP is not reachable (cleartext=$cleartext tls=$tls) within the allotted time."
+          exit 1
+
+      - name: Integration tests
+        # The build tag is "e2e". Without LDAP_MASK_E2E=1, the tests are simply
+        # skipped, which leaves the "test" job of ci.yml intact.
+        env:
+          LDAP_MASK_E2E: "1"
+          LDAP_E2E_UPSTREAM_URL: "ldap://localhost:389"
+          # TLS upstream: covers the cleartext/TLS listener x TLS upstream
+          # combinations.
+          LDAP_E2E_UPSTREAM_TLS_URL: "ldaps://localhost:636"
+          LDAP_E2E_REMOTE_DN: "cn=admin,dc=example,dc=com"
+          LDAP_E2E_REMOTE_PASSWORD: "RealAdminPw!42"
+          LDAP_E2E_BASE_DN: "dc=example,dc=com"
+          # Where the tests drop the proxy's TLS certificate. They generate
+          # their own throwaway one there (SAN 127.0.0.1 + localhost), so no
+          # prior openssl step is needed.
+          LDAP_E2E_CERT_DIR: "/tmp/ci-certs"
+        run: go test -tags=e2e -v ./...

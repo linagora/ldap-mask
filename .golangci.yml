@@ -1,0 +1,15 @@
+# golangci-lint configuration (schema v2). See DESIGN.md §7.
+version: "2"
+
+linters:
+  # "standard" = errcheck, govet, ineffassign, staticcheck, unused
+  default: standard
+  enable:
+    - misspell
+  settings:
+    misspell:
+      locale: US
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

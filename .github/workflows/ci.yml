@@ -1,0 +1,128 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+    branches:
+      - main
+      - master
+  workflow_dispatch:
+
+# Read-only: no job writes to the repository.
+permissions:
+  contents: read
+
+# Cancels in-progress runs for the same ref, except on the default branch (we
+# do not want to interrupt a run on it). The branch name is derived from the
+# repository setting rather than hardcoded: this repository uses `master`, which
+# is a configuration, not a property of the code.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+jobs:
+  lint:
+    name: Lint
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::Files not formatted by gofmt (run 'gofmt -w .'):"
+            echo "$unformatted"
+            exit 1
+          fi
+          echo "gofmt: no file to reformat."
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        # v9 is the first major version of the action compatible with
+        # golangci-lint v2 — it is also the schema used by .golangci.yml. Do not
+        # downgrade to @v6: the action would fail to install a v2 binary.
+        uses: golangci/golangci-lint-action@v9
+        with:
+          # Pinned version: a broken golangci-lint release must not bring down
+          # CI without us having decided so.
+          version: v2.14.0
+          args: --timeout=5m
+
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    needs: lint
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Build
+        run: go build ./...
+
+      - name: Test (race + coverage)
+        run: go test -race -covermode=atomic -coverprofile=coverage.out ./...
+
+      - name: Coverage summary
+        # Purely informative: does not fail the job.
+        run: go tool cover -func=coverage.out | tail -1
+        continue-on-error: true
+
+      - name: Publish coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage
+          path: coverage.out
+          if-no-files-found: error
+
+      - name: Static build check
+        # The production binary is built without cgo: this validates that the
+        # code compiles with CGO_ENABLED=0 (distroless image without libc).
+        run: CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /dev/null .
+
+  docker:
+    name: Docker build (validation)
+    runs-on: ubuntu-latest
+    needs: test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Validation build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          # load: true so the image can be run right after: building does not
+          # prove that it starts (broken CMD, non-executable binary…).
+          load: true
+          tags: ldap-mask:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - name: The image starts
+        # Smoke test: without a valid configuration the proxy must exit with an
+        # error, but the executable must still start. So we check the version,
+        # which depends on neither the configuration nor the network.
+        run: docker run --rm ldap-mask:ci -version

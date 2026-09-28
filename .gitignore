@@ -1,0 +1,4 @@
+ldap-mask
+coverage.out
+*.test
+dist/

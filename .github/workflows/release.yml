@@ -1,0 +1,77 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+# contents: write is required to create the release.
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and publish
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Check the tag looks like a version
+        # The trigger is the broad 'v*' glob; this is what actually rejects a
+        # mistyped tag, before anything is built or published.
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          if ! printf '%s' "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            echo "::error::tag '$tag' does not match vMAJOR.MINOR.PATCH"
+            exit 1
+          fi
+
+      - name: Run the gates
+        # Re-run them here rather than trusting the CI run on the same commit:
+        # a tag can be pushed on a commit that never saw a CI run.
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "::error::gofmt would reformat:"; echo "$unformatted"; exit 1
+          fi
+          go vet ./...
+          go test -race -count=1 ./...
+
+      - name: Cross-compile
+        run: |
+          set -euo pipefail
+          version="${GITHUB_REF_NAME}"
+          mkdir -p dist
+          for target in linux/amd64 linux/arm64 darwin/amd64 darwin/arm64; do
+            os="${target%/*}"; arch="${target#*/}"
+            name="ldap-mask_${version}_${os}_${arch}"
+            CGO_ENABLED=0 GOOS="$os" GOARCH="$arch" \
+              go build -trimpath -ldflags "-s -w -X main.version=${version}" -o "dist/${name}" .
+            tar -C dist -czf "dist/${name}.tar.gz" "${name}"
+            rm "dist/${name}"
+          done
+          ls -l dist
+
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum ./*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            dist/*.tar.gz dist/SHA256SUMS

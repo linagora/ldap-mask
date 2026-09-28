@@ -1,0 +1,10 @@
+# Only what is needed to build is sent to the Docker daemon: without this file,
+# the context includes .git, the workflows and local artifacts.
+.git
+.github
+*.md
+ldap-mask
+coverage.out
+*.test
+config.yaml
+certs

@@ -1,0 +1,20 @@
+version: 2
+
+updates:
+  - package-ecosystem: gomod
+    directory: "/"
+    target-branch: main
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    open-pull-requests-limit: 5
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    target-branch: main
+    schedule:
+      interval: weekly
+    commit-message:
+      prefix: deps
+    open-pull-requests-limit: 5
