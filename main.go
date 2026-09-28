@@ -84,7 +84,23 @@ func run() error {
 // "--hash" as well as "--hash=VALUE"), so it is appended by hand.
 func printUsage(fs *flag.FlagSet) {
 	out := fs.Output()
-	_, _ = fmt.Fprintf(out, "Usage: ldap-mask [options]\n\nOptions:\n")
+	_, _ = fmt.Fprint(out, `Usage:
+  ldap-mask --config FILE [options]
+  ldap-mask --listen URL --upstream URL MAPPING [options]
+  ldap-mask --hash [PASSWORD]
+
+MAPPING takes one of two forms, which can be combined:
+  --local-dn DN --local-password PW --remote-dn DN --remote-password PW
+	one mapping, without JSON; --local-password-bcrypt HASH replaces
+	--local-password
+  --map JSON
+	one mapping per occurrence, repeatable, e.g.
+	--map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2",
+	        "remote_dn":"cn=admin,dc=example,dc=com","remote_password":"s3cret"}'
+Either form replaces the mappings of the configuration file.
+
+Options:
+`)
 	fs.VisitAll(func(f *flag.Flag) {
 		arg, usage := flag.UnquoteUsage(f)
 		if arg != "" {
@@ -129,9 +145,9 @@ func registerFlags(fs *flag.FlagSet) *flagConfig {
 	fs.BoolVar(&fc.allowUnmapped, "allow-unmapped-bind", false,
 		"relay a bind whose DN is not in the mappings instead of refusing it")
 	fs.Var(&fc.maps, "map",
-		"local → remote mapping as a JSON object, repeatable; replaces the whole mappings list")
+		"local → remote mapping as a `JSON` object, repeatable (see MAPPING above)")
 	fs.StringVar(&fc.mapFlags.LocalDN, "local-dn", "",
-		"local DN of one mapping, without --map's JSON (with --local-password or\n--local-password-bcrypt, --remote-dn and --remote-password)")
+		"local DN of the mapping given without JSON (see MAPPING above)")
 	fs.Func("local-password", "cleartext local `password` of the --local-dn mapping", func(v string) error {
 		fc.mapFlags.LocalPassword = &v
 		return nil

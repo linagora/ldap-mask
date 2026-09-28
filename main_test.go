@@ -117,7 +117,7 @@ func TestUsageDoubleDash(t *testing.T) {
 	fs.SetOutput(&buf)
 	printUsage(fs)
 	out := buf.String()
-	for _, want := range []string{"\n  --config string\n", "\n  --map value\n", "\n  --hash [PASSWORD]\n"} {
+	for _, want := range []string{"\n  --config string\n", "\n  --map JSON\n", "\n  --hash [PASSWORD]\n"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("usage lacks %q:\n%s", want, out)
 		}
