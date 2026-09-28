@@ -519,3 +519,103 @@ func TestMapLiteralPasswordWarning(t *testing.T) {
 		})
 	}
 }
+
+// TestMappingFlags: --local-dn and its companions describe one mapping without
+// --map's JSON, validated and hashed exactly like a --map entry.
+func TestMappingFlags(t *testing.T) {
+	t.Setenv("LDAP_ADMIN_PASSWORD", "hunter2-upstream")
+	base := writeConfig(t, flagsBaseYAML(t))
+
+	fs, fc := flagsFlagSet(t,
+		"--config", base,
+		"--local-dn", "cn=other,dc=test",
+		"--local-password", "hunter2",
+		"--remote-dn", "cn=admin,dc=example,dc=com",
+		"--remote-password", "${LDAP_ADMIN_PASSWORD}")
+
+	cfg, literal, err := buildConfig(fs, fc)
+	if err != nil {
+		t.Fatalf("buildConfig: %v", err)
+	}
+	if len(cfg.Mappings) != 1 || cfg.Mappings[0].LocalDN != "cn=other,dc=test" {
+		t.Fatalf("Mappings = %+v, want only the flag mapping (file list replaced)", cfg.Mappings)
+	}
+	m := cfg.Mappings[0]
+	if err := bcrypt.CompareHashAndPassword([]byte(m.LocalPasswordBcrypt), []byte("hunter2")); err != nil {
+		t.Errorf("hash does not verify hunter2: %v", err)
+	}
+	if m.RemotePassword != "hunter2-upstream" {
+		t.Errorf("RemotePassword = %q, want the expanded value", m.RemotePassword)
+	}
+	if !literal {
+		t.Error("literalPassword = false with a cleartext --local-password")
+	}
+}
+
+// TestMappingFlagsWithMap: the flag mapping is added to the --map ones.
+func TestMappingFlagsWithMap(t *testing.T) {
+	fs, fc := flagsFlagSet(t,
+		"--map", fmt.Sprintf(`{"local_dn":"cn=a,dc=t","local_password_bcrypt":%q,`+
+			`"remote_dn":"cn=admin,dc=example,dc=com","remote_password":"up"}`, flagsBcryptHash(t)),
+		"--local-dn", "cn=b,dc=t",
+		"--local-password-bcrypt", flagsBcryptHash(t),
+		"--remote-dn", "cn=admin,dc=example,dc=com",
+		"--remote-password", "up",
+		"--listen", "ldap://127.0.0.1:1389",
+		"--upstream", "ldap://ldap.internal:389")
+
+	cfg, _, err := buildConfig(fs, fc)
+	if err != nil {
+		t.Fatalf("buildConfig: %v", err)
+	}
+	if cfg.Lookup("cn=a,dc=t") == nil || cfg.Lookup("cn=b,dc=t") == nil {
+		t.Errorf("Mappings = %+v, want both the --map and the flag mapping", cfg.Mappings)
+	}
+}
+
+// TestMappingFlagsErrors: an incomplete or contradictory flag mapping is
+// refused, and the error names the flag rather than the JSON key.
+func TestMappingFlagsErrors(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{
+			name: "missing remote password",
+			args: []string{"--local-dn", "cn=a,dc=t", "--local-password", "pw", "--remote-dn", "cn=b,dc=e"},
+			want: "--remote-password is required",
+		},
+		{
+			name: "remote DN alone",
+			args: []string{"--remote-dn", "cn=b,dc=e"},
+			want: "--local-dn is required",
+		},
+		{
+			name: "both password forms",
+			args: []string{"--local-dn", "cn=a,dc=t", "--local-password", "pw",
+				"--local-password-bcrypt", "$2a$10$abcdefghijklmnopqrstuv",
+				"--remote-dn", "cn=b,dc=e", "--remote-password", "up"},
+			want: "--local-password and --local-password-bcrypt are mutually exclusive",
+		},
+		{
+			name: "empty local password",
+			args: []string{"--local-dn", "cn=a,dc=t", "--local-password", "",
+				"--remote-dn", "cn=b,dc=e", "--remote-password", "up"},
+			want: "--local-password is empty",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, fc := flagsFlagSet(t, tc.args...)
+			_, _, err := buildConfig(fs, fc)
+			if err == nil {
+				t.Fatalf("%q accepted", tc.args)
+			}
+			if !strings.Contains(err.Error(), tc.want) {
+				t.Errorf("error = %q, want it to contain %q", err, tc.want)
+			}
+		})
+	}
+}

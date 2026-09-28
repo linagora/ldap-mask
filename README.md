@@ -18,7 +18,8 @@ go build -o ldap-mask .
 ./ldap-mask \
   --listen   'ldap://0.0.0.0:1389' \
   --upstream 'ldap://directory.internal:389' \
-  --map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"the-real-admin-password"}'
+  --local-dn 'cn=test-admin,dc=test' --local-password 'hunter2' \
+  --remote-dn 'cn=admin,dc=example,dc=com' --remote-password 'the-real-admin-password'
 ```
 
 Clients now bind to the proxy with the local identity; the proxy rebinds
@@ -162,19 +163,24 @@ friction.
 Options are written `--name`; the single-dash spelling (`-name`) is accepted
 too.
 
-| Flag                     | Default  | Description                                                                                             |
-| ------------------------ | -------- | ------------------------------------------------------------------------------------------------------- |
-| `--config PATH`          | _(none)_ | YAML configuration file. `-` reads it from standard input. No file is read unless the flag is given.    |
-| `--listen URL`           | —        | Listener URL, e.g. `ldaps://0.0.0.0:1636`. The scheme is mandatory (`ldap` or `ldaps`).                 |
-| `--tls-cert PATH`        | —        | Certificate presented to clients (only for an `ldaps://` listener).                                     |
-| `--tls-key PATH`         | —        | Private key of `--tls-cert`.                                                                            |
-| `--upstream URL`         | —        | Upstream directory URL, e.g. `ldaps://directory.internal:636`.                                          |
-| `--upstream-ca PATH`     | —        | CA file used to verify the upstream certificate (`ca_file`).                                            |
-| `--insecure-skip-verify` | `false`  | Do not verify the upstream certificate. The flag needs no confirmation; the equivalent config key does. |
-| `--allow-unmapped-bind`  | `false`  | Relay a bind whose DN is not mapped instead of refusing it.                                             |
-| `--map JSON`             | —        | One mapping as a JSON object; repeat once per mapping. Replaces the file's whole `mappings` list.       |
-| `--hash [PASSWORD]`      | —        | Generates a bcrypt hash; password read from standard input or passed as an argument.                    |
-| `--version`              | —        | Prints the version and exits.                                                                           |
+| Flag                           | Default  | Description                                                                                             |
+| ------------------------------ | -------- | ------------------------------------------------------------------------------------------------------- |
+| `--config PATH`                | _(none)_ | YAML configuration file. `-` reads it from standard input. No file is read unless the flag is given.    |
+| `--listen URL`                 | —        | Listener URL, e.g. `ldaps://0.0.0.0:1636`. The scheme is mandatory (`ldap` or `ldaps`).                 |
+| `--tls-cert PATH`              | —        | Certificate presented to clients (only for an `ldaps://` listener).                                     |
+| `--tls-key PATH`               | —        | Private key of `--tls-cert`.                                                                            |
+| `--upstream URL`               | —        | Upstream directory URL, e.g. `ldaps://directory.internal:636`.                                          |
+| `--upstream-ca PATH`           | —        | CA file used to verify the upstream certificate (`ca_file`).                                            |
+| `--insecure-skip-verify`       | `false`  | Do not verify the upstream certificate. The flag needs no confirmation; the equivalent config key does. |
+| `--allow-unmapped-bind`        | `false`  | Relay a bind whose DN is not mapped instead of refusing it.                                             |
+| `--map JSON`                   | —        | One mapping as a JSON object; repeat once per mapping. Replaces the file's whole `mappings` list.       |
+| `--local-dn DN`                | —        | One mapping without JSON: its local DN (see [below](#one-mapping-without-json)).                        |
+| `--local-password PW`          | —        | Cleartext local password of that mapping, hashed at startup.                                            |
+| `--local-password-bcrypt HASH` | —        | Pre-computed bcrypt hash, instead of `--local-password`.                                                |
+| `--remote-dn DN`               | —        | Real DN of that mapping. `${VAR}` is expanded.                                                          |
+| `--remote-password PW`         | —        | Real password of that mapping. `${VAR}` is expanded.                                                    |
+| `--hash [PASSWORD]`            | —        | Generates a bcrypt hash; password read from standard input or passed as an argument.                    |
+| `--version`                    | —        | Prints the version and exits.                                                                           |
 
 Disabling upstream certificate verification is guarded **asymmetrically**, on
 purpose:
@@ -204,7 +210,8 @@ no file** — this is the nominal use of the flag mode:
 ./ldap-mask \
   --listen   'ldap://0.0.0.0:1389' \
   --upstream 'ldap://directory.internal:389' \
-  --map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"the-real-admin-password"}'
+  --local-dn 'cn=test-admin,dc=test' --local-password 'hunter2' \
+  --remote-dn 'cn=admin,dc=example,dc=com' --remote-password 'the-real-admin-password'
 ```
 
 The TLS variant simply adds the certificate material (and, for a verified
@@ -215,7 +222,8 @@ upstream, `--upstream-ca`):
   --listen   'ldaps://0.0.0.0:1636' \
   --tls-cert /certs/proxy.crt --tls-key /certs/proxy.key \
   --upstream 'ldaps://directory.internal:636' --upstream-ca /certs/internal-ca.crt \
-  --map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"the-real-admin-password"}'
+  --local-dn 'cn=test-admin,dc=test' --local-password 'hunter2' \
+  --remote-dn 'cn=admin,dc=example,dc=com' --remote-password 'the-real-admin-password'
 ```
 
 ### Precedence
@@ -224,9 +232,26 @@ The file is read first (when `--config` is given), then **only the flags actuall
 present on the command line** override the corresponding values. A flag that is
 not given leaves the file's value alone; a flag that is given overrides it —
 including an explicit `--insecure-skip-verify=false`, which therefore beats
-`insecure_skip_verify: true` in the file. `--map` **replaces** the whole
-`mappings` list; it never appends to it. Validation runs once, on the result,
+`insecure_skip_verify: true` in the file. `--map` and the one-mapping flags
+(`--local-dn`, …) **replace** the whole `mappings` list; they never append to
+it. Validation runs once, on the result,
 whichever path produced it.
+
+### One mapping without JSON
+
+For the common single-mapping case, `--local-dn`, `--local-password` (or
+`--local-password-bcrypt`), `--remote-dn` and `--remote-password` describe the
+mapping directly; all four are required:
+
+```bash
+./ldap-mask --listen 'ldap://0.0.0.0:1389' --upstream 'ldap://directory.internal:389' \
+  --local-dn 'cn=test-admin,dc=test' --local-password-bcrypt '$2a$…' \
+  --remote-dn 'cn=admin,dc=example,dc=com' --remote-password '${LDAP_ADMIN_PASSWORD}'
+```
+
+They are validated exactly like a `--map` entry, including `${VAR}` expansion,
+and can be combined with `--map`: that mapping is simply added to the `--map`
+ones. Several mappings need `--map`.
 
 ### The `--map` JSON format
 
@@ -308,7 +333,8 @@ needs no TLS material at all:
 docker run --rm -p 1389:1389 ldap-mask \
   --listen   'ldap://0.0.0.0:1389' \
   --upstream 'ldap://directory.internal:389' \
-  --map '{"local_dn":"cn=test-admin,dc=test","local_password":"hunter2","remote_dn":"cn=admin,dc=example,dc=com","remote_password":"s3cret"}'
+  --local-dn 'cn=test-admin,dc=test' --local-password 'hunter2' \
+  --remote-dn 'cn=admin,dc=example,dc=com' --remote-password 's3cret'
 ```
 
 ## Verification

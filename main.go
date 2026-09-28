@@ -108,6 +108,7 @@ type flagConfig struct {
 	insecureSkip  bool
 	allowUnmapped bool
 	maps          mapList
+	mapFlags      mapEntry
 }
 
 // registerFlags declares the configuration flags on fs and returns their
@@ -129,6 +130,19 @@ func registerFlags(fs *flag.FlagSet) *flagConfig {
 		"relay a bind whose DN is not in the mappings instead of refusing it")
 	fs.Var(&fc.maps, "map",
 		"local → remote mapping as a JSON object, repeatable; replaces the whole mappings list")
+	fs.StringVar(&fc.mapFlags.LocalDN, "local-dn", "",
+		"local DN of one mapping, without --map's JSON (with --local-password or\n--local-password-bcrypt, --remote-dn and --remote-password)")
+	fs.Func("local-password", "cleartext local `password` of the --local-dn mapping", func(v string) error {
+		fc.mapFlags.LocalPassword = &v
+		return nil
+	})
+	fs.Func("local-password-bcrypt", "bcrypt `hash` of the local password of the --local-dn mapping", func(v string) error {
+		fc.mapFlags.LocalPasswordBcrypt = &v
+		return nil
+	})
+	fs.StringVar(&fc.mapFlags.RemoteDN, "remote-dn", "", "real DN of the --local-dn mapping; ${VAR} is expanded")
+	fs.StringVar(&fc.mapFlags.RemotePassword, "remote-password", "",
+		"real password of the --local-dn mapping; ${VAR} is expanded")
 	return fc
 }
 
@@ -137,6 +151,12 @@ func registerFlags(fs *flag.FlagSet) *flagConfig {
 var configFlagNames = []string{
 	"listen", "tls-cert", "tls-key", "upstream", "upstream-ca",
 	"insecure-skip-verify", "allow-unmapped-bind", "map",
+	"local-dn", "local-password", "local-password-bcrypt", "remote-dn", "remote-password",
+}
+
+// mapFlagNames are the flags that describe one mapping without --map's JSON.
+var mapFlagNames = []string{
+	"local-dn", "local-password", "local-password-bcrypt", "remote-dn", "remote-password",
 }
 
 // buildConfig assembles the configuration: the file first (if --config was
@@ -188,14 +208,27 @@ func buildConfig(fs *flag.FlagSet, fc *flagConfig) (*Config, bool, error) {
 		cfg.AllowUnmappedBind = fc.allowUnmapped
 	}
 	literalPassword := false
-	// --map replaces the file's mappings list wholesale (§5); it never appends.
+	// --map and the single-mapping flags together replace the file's mappings
+	// list wholesale (§5); they never append to it.
+	var mappings []Mapping
 	if set["map"] {
-		mappings, literal, err := parseMappings(fc.maps)
+		m, literal, err := parseMappings(fc.maps)
 		if err != nil {
 			return nil, false, err
 		}
-		cfg.Mappings = mappings
+		mappings = m
 		literalPassword = literal
+	}
+	if anySet(set, mapFlagNames) {
+		m, literal, err := buildMapping(fc.mapFlags, "--local-dn mapping", flagKeys)
+		if err != nil {
+			return nil, false, err
+		}
+		mappings = append(mappings, m)
+		literalPassword = literalPassword || literal
+	}
+	if mappings != nil {
+		cfg.Mappings = mappings
 	}
 
 	// Guards only the file-sourced value; see DESIGN.md §6.4.
@@ -214,10 +247,11 @@ func buildConfig(fs *flag.FlagSet, fc *flagConfig) (*Config, bool, error) {
 // configured reports whether any source of configuration was requested: a file
 // (--config), or at least one configuration flag.
 func configured(set map[string]bool, fc *flagConfig) bool {
-	if fc.config != "" {
-		return true
-	}
-	for _, name := range configFlagNames {
+	return fc.config != "" || anySet(set, configFlagNames)
+}
+
+func anySet(set map[string]bool, names []string) bool {
+	for _, name := range names {
 		if set[name] {
 			return true
 		}
@@ -249,12 +283,19 @@ type mapEntry struct {
 	RemotePassword      string  `json:"remote_password"`
 }
 
-// parseMappings converts the --map JSON values into mappings, expanding ${VAR}
-// in remote_dn and remote_password (DESIGN.md §5) and hashing a cleartext
-// local_password so handleBind only ever compares a bcrypt hash. The returned
-// bool reports whether a password appeared literally on the command line: a
-// cleartext local_password, or a remote_password not made up exclusively of
-// ${VAR} references.
+// mappingKeys names the fields of a mapEntry as the user wrote them, so an
+// error points at the JSON key of --map or at the flag actually typed.
+type mappingKeys struct {
+	localDN, localPassword, localPasswordBcrypt, remoteDN, remotePassword string
+}
+
+var (
+	jsonKeys = mappingKeys{"local_dn", "local_password", "local_password_bcrypt", "remote_dn", "remote_password"}
+	flagKeys = mappingKeys{"--local-dn", "--local-password", "--local-password-bcrypt", "--remote-dn", "--remote-password"}
+)
+
+// parseMappings converts the --map JSON values into mappings (see
+// buildMapping).
 func parseMappings(values []string) ([]Mapping, bool, error) {
 	out := make([]Mapping, 0, len(values))
 	literalPassword := false
@@ -274,65 +315,80 @@ func parseMappings(values []string) ([]Mapping, bool, error) {
 			return nil, false, fmt.Errorf("%s: invalid JSON: unexpected data after the object", where)
 		}
 
-		// From here the local DN is known, and it is not a secret: naming it
-		// makes the message actionable without quoting a password.
-		if dn := strings.TrimSpace(e.LocalDN); dn != "" {
-			where = fmt.Sprintf("%s (local_dn %q)", where, dn)
-		}
-		if strings.TrimSpace(e.LocalDN) == "" {
-			return nil, false, fmt.Errorf("%s: local_dn is required", where)
-		}
-		if strings.TrimSpace(e.RemoteDN) == "" {
-			return nil, false, fmt.Errorf("%s: remote_dn is required", where)
-		}
-		if e.RemotePassword == "" {
-			return nil, false, fmt.Errorf("%s: remote_password is required", where)
-		}
-		if e.LocalPassword == nil && e.LocalPasswordBcrypt == nil {
-			return nil, false, fmt.Errorf("%s: exactly one of local_password or local_password_bcrypt is required", where)
-		}
-		if e.LocalPassword != nil && e.LocalPasswordBcrypt != nil {
-			return nil, false, fmt.Errorf("%s: local_password and local_password_bcrypt are mutually exclusive", where)
-		}
-
-		if e.LocalPassword != nil || envVarRe.ReplaceAllString(e.RemotePassword, "") != "" {
-			literalPassword = true
-		}
-
-		remoteDN, err := expandEnv(e.RemoteDN)
+		m, literal, err := buildMapping(e, where, jsonKeys)
 		if err != nil {
-			return nil, false, fmt.Errorf("%s: remote_dn: %w", where, err)
-		}
-		remotePassword, err := expandEnv(e.RemotePassword)
-		if err != nil {
-			return nil, false, fmt.Errorf("%s: remote_password: %w", where, err)
-		}
-
-		m := Mapping{
-			LocalDN:        e.LocalDN,
-			RemoteDN:       remoteDN,
-			RemotePassword: remotePassword,
-		}
-		if e.LocalPassword != nil {
-			if *e.LocalPassword == "" {
-				// A hash of the empty string would accept any bind without a
-				// password for this DN.
-				return nil, false, fmt.Errorf("%s: local_password is empty", where)
-			}
-			h, err := HashPassword(*e.LocalPassword)
-			if err != nil {
-				return nil, false, fmt.Errorf("%s: %w", where, err)
-			}
-			m.LocalPasswordBcrypt = h
-		} else {
-			if *e.LocalPasswordBcrypt == "" {
-				return nil, false, fmt.Errorf("%s: local_password_bcrypt is empty", where)
-			}
-			m.LocalPasswordBcrypt = *e.LocalPasswordBcrypt
+			return nil, false, err
 		}
 		out = append(out, m)
+		literalPassword = literalPassword || literal
 	}
 	return out, literalPassword, nil
+}
+
+// buildMapping validates one mapping given on the command line, expanding
+// ${VAR} in remote_dn and remote_password (DESIGN.md §5) and hashing a
+// cleartext local password so handleBind only ever compares a bcrypt hash. The
+// returned bool reports whether a password appeared literally on the command
+// line: a cleartext local password, or a remote password not made up
+// exclusively of ${VAR} references.
+func buildMapping(e mapEntry, where string, k mappingKeys) (Mapping, bool, error) {
+	// The local DN is not a secret: naming it makes the message actionable
+	// without quoting a password.
+	if dn := strings.TrimSpace(e.LocalDN); dn != "" {
+		where = fmt.Sprintf("%s (local_dn %q)", where, dn)
+	}
+	if strings.TrimSpace(e.LocalDN) == "" {
+		return Mapping{}, false, fmt.Errorf("%s: %s is required", where, k.localDN)
+	}
+	if strings.TrimSpace(e.RemoteDN) == "" {
+		return Mapping{}, false, fmt.Errorf("%s: %s is required", where, k.remoteDN)
+	}
+	if e.RemotePassword == "" {
+		return Mapping{}, false, fmt.Errorf("%s: %s is required", where, k.remotePassword)
+	}
+	if e.LocalPassword == nil && e.LocalPasswordBcrypt == nil {
+		return Mapping{}, false, fmt.Errorf("%s: exactly one of %s or %s is required",
+			where, k.localPassword, k.localPasswordBcrypt)
+	}
+	if e.LocalPassword != nil && e.LocalPasswordBcrypt != nil {
+		return Mapping{}, false, fmt.Errorf("%s: %s and %s are mutually exclusive",
+			where, k.localPassword, k.localPasswordBcrypt)
+	}
+
+	literalPassword := e.LocalPassword != nil || envVarRe.ReplaceAllString(e.RemotePassword, "") != ""
+
+	remoteDN, err := expandEnv(e.RemoteDN)
+	if err != nil {
+		return Mapping{}, false, fmt.Errorf("%s: %s: %w", where, k.remoteDN, err)
+	}
+	remotePassword, err := expandEnv(e.RemotePassword)
+	if err != nil {
+		return Mapping{}, false, fmt.Errorf("%s: %s: %w", where, k.remotePassword, err)
+	}
+
+	m := Mapping{
+		LocalDN:        e.LocalDN,
+		RemoteDN:       remoteDN,
+		RemotePassword: remotePassword,
+	}
+	if e.LocalPassword != nil {
+		if *e.LocalPassword == "" {
+			// A hash of the empty string would accept any bind without a
+			// password for this DN.
+			return Mapping{}, false, fmt.Errorf("%s: %s is empty", where, k.localPassword)
+		}
+		h, err := HashPassword(*e.LocalPassword)
+		if err != nil {
+			return Mapping{}, false, fmt.Errorf("%s: %w", where, err)
+		}
+		m.LocalPasswordBcrypt = h
+	} else {
+		if *e.LocalPasswordBcrypt == "" {
+			return Mapping{}, false, fmt.Errorf("%s: %s is empty", where, k.localPasswordBcrypt)
+		}
+		m.LocalPasswordBcrypt = *e.LocalPasswordBcrypt
+	}
+	return m, literalPassword, nil
 }
 
 // extractHashFlag removes --hash / --hash=VALUE / --hash VALUE (or their

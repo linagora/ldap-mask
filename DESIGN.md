@@ -169,6 +169,10 @@ the flags actually present on the command line** override the corresponding
 values — a flag left out never overwrites the file, so an explicit
 `--insecure-skip-verify=false` beats `insecure_skip_verify: true` in the file.
 `--map` replaces the whole `mappings` list rather than appending to it.
+`--local-dn`, `--local-password` (or `--local-password-bcrypt`), `--remote-dn`
+and `--remote-password` describe one more mapping without JSON, for the
+single-mapping case; it goes through the same validation as a `--map` entry and
+is added to the `--map` ones, both replacing the file's list.
 `Validate` runs once, on the merged result, whichever path produced it; running
 entirely from flags, with no file, is therefore first-class. A cleartext
 listener needs no certificate material, from either source.
