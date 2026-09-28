@@ -22,10 +22,10 @@ to it.
 
 Two very different things, often confused:
 
-| Approach | What the client knows | Verdict |
-|---|---|---|
-| **DN rewriting** | The real password, an alias DN | ❌ Hides nothing — the secret is still on the client side |
-| **Identity substitution** | A fictitious DN *and* password | ✅ What we want |
+| Approach                  | What the client knows          | Verdict                                                   |
+| ------------------------- | ------------------------------ | --------------------------------------------------------- |
+| **DN rewriting**          | The real password, an alias DN | ❌ Hides nothing — the secret is still on the client side |
+| **Identity substitution** | A fictitious DN _and_ password | ✅ What we want                                           |
 
 It is this criterion that rules out most existing solutions
 (`slapd back-ldap` + `idassert-bind` performs identity delegation, not
@@ -52,12 +52,12 @@ forced.
 
 ### v1 — out of scope (and why)
 
-| Out of scope | Reason |
-|---|---|
-| **Client-side StartTLS** | Forces a protocol change mid-stream, with an already buffered reader: the bytes already read would have to be re-injected before the TLS switchover. Listening directly over `ldaps://` does the same job without that problem. Refused cleanly (`unwillingToPerform`), including — and especially — on a cleartext listener, where the request is actually reachable |
-| **SASL** | Relayed as-is, but not substituted. The SASL client uses its own credentials — no secret leaks |
-| **Operation restriction** | See §6: an admin alias *is* an admin. If the need is to limit the blast radius, that is a separate layer |
-| **Referrals / Root DSE / WhoAmI rewriting** | Known and documented leaks, see §6 |
+| Out of scope                                | Reason                                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Client-side StartTLS**                    | Forces a protocol change mid-stream, with an already buffered reader: the bytes already read would have to be re-injected before the TLS switchover. Listening directly over `ldaps://` does the same job without that problem. Refused cleanly (`unwillingToPerform`), including — and especially — on a cleartext listener, where the request is actually reachable |
+| **SASL**                                    | Relayed as-is, but not substituted. The SASL client uses its own credentials — no secret leaks                                                                                                                                                                                                                                                                        |
+| **Operation restriction**                   | See §6: an admin alias _is_ an admin. If the need is to limit the blast radius, that is a separate layer                                                                                                                                                                                                                                                              |
+| **Referrals / Root DSE / WhoAmI rewriting** | Known and documented leaks, see §6                                                                                                                                                                                                                                                                                                                                    |
 
 ## 4. How it works
 
@@ -120,7 +120,7 @@ Two goroutines per client connection:
   client request (64 MiB), whereas an `io.Copy` was unbounded. The limit
   remains far above OpenLDAP's (`sockbuf_max_incoming` is 256 KiB by default).
 
-One **upstream connection per client connection**: the *bound* state is a
+One **upstream connection per client connection**: the _bound_ state is a
 connection state, it cannot be shared through a pool. It is opened **lazily**,
 on the first message to relay — otherwise every incoming socket, including a
 connection that does not even complete a TLS handshake or whose bind is
@@ -183,16 +183,16 @@ listen: "ldaps://0.0.0.0:1636"
 
 tls:
   cert_file: /certs/proxy.crt
-  key_file:  /certs/proxy.key
+  key_file: /certs/proxy.key
 
 upstream:
-  url: "ldaps://ldap.internal:636"     # or ldap://
+  url: "ldaps://ldap.internal:636" # or ldap://
   ca_file: /certs/internal-ca.crt
-  insecure_skip_verify: false          # false, deliberately
+  insecure_skip_verify: false # false, deliberately
 
 mappings:
   - local_dn: "cn=test-admin,dc=test"
-    local_password_bcrypt: "$2a$10$..."     # generated by `ldap-mask --hash`
+    local_password_bcrypt: "$2a$10$..." # generated by `ldap-mask --hash`
     remote_dn: "cn=admin,dc=example,dc=com"
     remote_password: "${LDAP_ADMIN_PASSWORD}"
 
@@ -220,7 +220,7 @@ This is the part to re-read before deploying.
 1. **A substituted admin identity is an admin.** The proxy hides the password,
    not the capability. An app that does a mass `delete` will do just as much
    through the substituted identity. If the goal is to limit the blast radius,
-   an operation / subtree allowlist is needed *in addition*.
+   an operation / subtree allowlist is needed _in addition_.
 
 2. **The proxy must be out of the agent's reach.** If the agent has a shell on
    the same machine, it reads the config file and retrieves the real password.
@@ -244,7 +244,7 @@ This is the part to re-read before deploying.
    - The `SearchResultReference` (referrals) point to the real directory: a
      client that follows them **bypasses the proxy**.
 
-   None of them reveals the *password*, but all three reveal the real DN.
+   None of them reveals the _password_, but all three reveal the real DN.
    Interceptable in v2 (§8).
 
 4. **Encrypt both legs when possible.** Client → proxy over LDAPS, proxy →
@@ -256,8 +256,8 @@ This is the part to re-read before deploying.
    unencrypted. The proxy **logs a `WARN` at startup for each cleartext leg**:
    the operator must not be able to ignore it.
 
-   `insecure_skip_verify` does not weaken encryption but the *identity
-   verification* of the upstream, so it is guarded — **asymmetrically**, and
+   `insecure_skip_verify` does not weaken encryption but the _identity
+   verification_ of the upstream, so it is guarded — **asymmetrically**, and
    deliberately so. On the command line, `--insecure-skip-verify` works as-is:
    typing it is a deliberate act every time. In a configuration file it is
    refused unless `LDAP_MASK_ALLOW_INSECURE=1` confirms it, because a file is
@@ -297,11 +297,11 @@ e2e_test.go  (-tags=e2e)  integration against a real OpenLDAP, driven by real
 
 Dependencies:
 
-| Module | Role |
-|---|---|
-| `github.com/go-asn1-ber/asn1-ber` | BER encoding/decoding |
-| `golang.org/x/crypto/bcrypt` | local password hashing |
-| `gopkg.in/yaml.v3` | configuration |
+| Module                            | Role                   |
+| --------------------------------- | ---------------------- |
+| `github.com/go-asn1-ber/asn1-ber` | BER encoding/decoding  |
+| `golang.org/x/crypto/bcrypt`      | local password hashing |
+| `gopkg.in/yaml.v3`                | configuration          |
 
 Deliberately **no** `go-ldap/ldap`: no high-level LDAP client is used on the
 upstream side, since the bytes are written ourselves. One dependency less.
@@ -333,7 +333,7 @@ handed a v2 binary. The linter itself is pinned to an exact version so a broken
 upstream release cannot turn CI red without a decision.
 
 **Default branch** (`ci.yml`). The concurrency rule cancels superseded runs on
-every ref *except* the default branch, derived from
+every ref _except_ the default branch, derived from
 `github.event.repository.default_branch` rather than hardcoded — this repository
 uses `master`, but that is a setting, not a fact about the code.
 
@@ -361,8 +361,8 @@ OpenLDAP 2.6.15 clients (`ldapsearch`, `ldapwhoami`).
 
 A throwaway OpenLDAP directory in a container, an admin account, then:
 
-1. `ldapwhoami` with the **local** pair → must answer OK. *(It will return the
-   real DN: this is the expected §6.3 leak, not a bug.)*
+1. `ldapwhoami` with the **local** pair → must answer OK. _(It will return the
+   real DN: this is the expected §6.3 leak, not a bug.)_
 2. `ldapsearch` with the local pair → must return the normal entries.
 3. Bind with the correct local DN but a **wrong** password → `49`.
 4. Bind with an **unmapped DN** → `49`, indistinguishable from the previous
